@@ -154,6 +154,14 @@ export function Dashboard({ user }: { user: User }) {
           </Link>
           <div className="flex items-center gap-4">
             <Link
+              className="btn-primary"
+              href={
+                selected ? `/documents?organization=${selected}` : "/documents"
+              }
+            >
+              Documents
+            </Link>
+            <Link
               className="text-sm text-slate-500 hover:text-indigo-600"
               href="/"
             >

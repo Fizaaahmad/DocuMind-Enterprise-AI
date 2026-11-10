@@ -72,7 +72,10 @@ export async function refreshSession(): Promise<void> {
   return refreshPromise;
 }
 
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiResponse(
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
   try {
     let response = await request(path, init);
     if (response.status === 401 && !path.startsWith("/auth/")) {
@@ -80,12 +83,25 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       response = await request(path, init);
     }
     if (!response.ok) return failure(response);
-    return response.status === 204 ? (undefined as T) : await response.json();
+    return response;
   } catch (error) {
     if (error instanceof ApiError) throw error;
     throw new ApiError(
       0,
       "Cannot reach DocuMind. Check your connection and try again.",
+    );
+  }
+}
+
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await apiResponse(path, init);
+  if (response.status === 204) return undefined as T;
+  try {
+    return await response.json();
+  } catch {
+    throw new ApiError(
+      0,
+      "DocuMind returned an invalid response. Please try again.",
     );
   }
 }

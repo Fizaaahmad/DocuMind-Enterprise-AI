@@ -7,11 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes.auth import router as auth_router
+from app.api.routes.documents import router as documents_router
 from app.api.routes.health import router as health_router
 from app.api.routes.organizations import router as organizations_router
 from app.core.config import Settings, get_settings
 from app.core.security import verify_csrf
 from app.db.session import build_engine
+from app.documents.limits import UploadLimitMiddleware
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -56,7 +58,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["Accept", "Content-Type", "X-CSRF-Token"],
     )
+    app.add_middleware(UploadLimitMiddleware, limit=config.upload_max_bytes)
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(organizations_router, prefix="/api/v1")
+    app.include_router(documents_router, prefix="/api/v1")
     return app

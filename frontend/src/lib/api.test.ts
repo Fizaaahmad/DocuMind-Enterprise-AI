@@ -5,6 +5,14 @@ afterEach(() => vi.unstubAllGlobals());
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status });
 
+it("sanitizes malformed successful JSON responses", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not-json")));
+  await expect(api("/organizations")).rejects.toMatchObject({
+    status: 0,
+    message: "DocuMind returned an invalid response. Please try again.",
+  });
+});
+
 it("fetches a CSRF token before login and uses same-origin cookie transport", async () => {
   const fetcher = vi
     .fn()

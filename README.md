@@ -1,6 +1,129 @@
 # DocuMind
 
-Enterprise document intelligence platform. Phase 2 adds secure authentication, multi-organization membership, and organization-level Admin/Member authorization to the Next.js/TypeScript/Tailwind, FastAPI, PostgreSQL, and pgvector foundation. Document workflows, RAG, and agents are deferred.
+Enterprise document intelligence platform. Phase 3 adds organization-scoped document storage, a document library, source-aware text extraction, chunking, and durable PostgreSQL-backed processing to the authenticated full-stack foundation. Embeddings, Claude, RAG, and agents are not implemented.
+
+## Phase 3: Windows setup and startup
+
+Keep existing environment files and database volumes. From the project root:
+
+```powershell
+docker compose up -d --wait db
+cd backend
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+# Review the additive Phase 3 SQL before applying it:
+.\.venv\Scripts\python.exe -m alembic upgrade 0002_identity:head --sql
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000
+```
+
+Open a second PowerShell terminal at the project root for the worker:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m app.documents.worker
+```
+
+Open a third PowerShell terminal at the project root for Next.js:
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+Visit <http://localhost:3000>, sign in, and select **Documents** from the dashboard. The library is at `/documents`; organization context is checked against your live memberships. Team management stays at `/dashboard`, and the Phase 1 status page stays at `/`.
+
+The worker is a separate Python process, not an API background thread. It uses the existing PostgreSQL database; no Redis, Celery, extra container, or third-party queue service is required. Both the API and worker must run for the complete workflow. Without a worker, valid uploads remain Pending and deletions remain queued for cleanup.
+
+### Manually test the complete document workflow
+
+1. Create or select an organization. Upload a UTF-8 `.txt`, a `.docx` containing paragraphs and a table, and a text-based `.pdf` with multiple pages. Drag-and-drop and file selection both work, with up to ten sequential uploads per batch.
+2. Watch transfer progress, then Pending/Processing/Completed. Transfer progress measures bytes sent to the frontend server; **Saving…** means the server has not yet accepted the document. Queued processing is separate from transfer progress.
+3. Click a filename. Confirm original byte size, source/chunk counts, metadata, and extracted content. PDFs preserve actual page numbers. DOCX uses heading/block references and includes table text; TXT uses a text-source section. DOCX/TXT do not receive invented page numbers.
+4. Search by filename and filter by format/status; change sorting and browse pages. This is ordinary filename search, not semantic search. The library refreshes while visible; details poll during processing.
+5. Download the original and compare it with the uploaded file. Originals are attachments, not public/static assets or inline HTML previews.
+6. Try an empty file, `.exe`, a renamed non-PDF, and a file above the configured limit. They should be rejected. A damaged PDF with a recognizable PDF header may be accepted but then become Failed during extraction. Image-only PDFs fail with an OCR explanation; OCR is not part of Phase 3.
+7. On a Failed document, inspect the sanitized error and select **Retry processing** after fixing a relevant configuration issue. A damaged source must be replaced with a new upload. Retry uses the current API chunking settings; worker parsing limits apply when the worker processes it.
+8. Delete a document as its uploader or an organization Admin. It disappears immediately and all content/download endpoints deny further access. The worker removes its original file, sections, chunks, and database record. Other ordinary Members can read/download but cannot delete or retry someone else's document.
+9. Use a different browser profile/private window for a second account. Verify that files from an organization it has not joined are absent and inaccessible, even with a known document ID. A user belonging to two organizations sees a separate library for each.
+10. Stop the worker, upload a file, and restart it: the Pending job survives and completes. For a worker terminated during processing, the existing lease must expire before reclamation (default maximum 90 seconds). A late result from a deleted or superseded job cannot restore content.
+
+### Configurable storage, limits, and chunking
+
+Add overrides to `backend/.env` only when changing defaults. Restart the API and worker after environment changes. Do not overwrite existing database or authentication secrets.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `STORAGE_PATH` | `var/documents` under `backend/` | Private local file storage; absolute paths also supported |
+| `UPLOAD_MAX_BYTES` | `20971520` | Maximum original file size: 20 MiB |
+| `CHUNK_SIZE` | `1200` | Maximum characters per chunk |
+| `CHUNK_OVERLAP` | `200` | Overlap in characters; must be smaller than chunk size |
+| `EXTRACTION_MAX_CHARACTERS` | `2000000` | Maximum extracted text per document |
+| `EXTRACTION_MAX_PAGES` | `1000` | Maximum PDF pages |
+| `DOCX_MAX_UNCOMPRESSED_BYTES` | `41943040` | Maximum declared expanded DOCX archive size |
+| `PROCESSING_MAX_CHUNKS` | `10000` | Maximum chunks published per document |
+| `PROCESSING_TIMEOUT_SECONDS` | `60` | Parser subprocess time limit |
+| `WORKER_POLL_SECONDS` | `2` | Idle queue polling interval |
+| `WORKER_MAX_ATTEMPTS` | `3` | Processing retry/recovery budget |
+
+The browser discovers the file limit through an authorized API configuration endpoint. The Next.js upload proxy obtains the same limit directly from FastAPI, so no separate frontend limit variable is needed. Both proxy and API enforce bounded request bodies, including chunked requests without Content-Length; multipart framing has a separate 64 KiB allowance. Originals themselves must still fit `UPLOAD_MAX_BYTES`.
+
+Storage uses generated organization/document UUID keys, sanitized display filenames, atomic file replacement, and SHA-256 checksums. The folder is ignored by Git and never served as a static directory. API/storage calls derive keys from authorized records, not user-supplied paths. Relative `STORAGE_PATH` values resolve against `backend/` regardless of the launch directory. API and worker must share the same configured storage. For multiple hosts, supply shared private storage or a future cloud adapter through the `Storage` interface/factory; a cloud provider is not implemented yet. Back up the database and file directory together.
+
+PDF extraction uses PyMuPDF in a dedicated child process; DOCX uses python-docx; TXT accepts UTF-8 (with/without BOM) or BOM-marked UTF-16. DOCX archives are checked for unsafe paths, excessive expansion, encryption, and macros. Processing is bounded by text/page/chunk limits and a parser timeout. This is parser isolation, not an operating-system sandbox or malware scanner. PDF OCR and DOCX headers/footnotes are not extracted in this phase.
+
+### Processing and deletion architecture
+
+Migration `0003_documents` adds `documents`, `document_sections`, `document_chunks`, and `document_jobs`. Composite foreign keys bind sections/chunks/jobs to their document and organization. Existing user, session, membership, pgvector, and health behavior is retained.
+
+Uploads reserve a document and job before storing the original, then make the job available after the file is complete. A short organization/document lock protects the bounded local file copy against membership/deletion races. Interrupted reservations are reclaimed after ten minutes. Original files never use their display filenames as storage paths.
+
+The worker claims jobs using PostgreSQL row locks with `SKIP LOCKED` and an expiring lease token. It commits Processing before parsing, holds no database locks during parsing, and publishes sections/chunks atomically only while it still owns the lease. Parser children are terminated on timeout, including the Windows venv child-process tree. Restarted workers reclaim expired leases; stale workers cannot publish after reclamation or deletion. Chunk offsets reference extracted source sections and never cross section boundaries.
+
+Transient failures retry with backoff up to the processing budget; invalid documents and parser timeouts become Failed and allow explicit retry. Deletion first hides a document and replaces its processing job with a cleanup job, fencing late results. Cleanup tolerates missing files and retries storage/permission errors with capped backoff until cleanup succeeds. On Windows, an open download/file handle may temporarily delay removal. Filesystem and PostgreSQL updates cannot be a single transaction, so durable reservations and idempotent cleanup bridge the two systems.
+
+### Document API and tests
+
+All paths below are relative to `/api/v1/organizations/{organization_id}/documents`. Every route requires an active authenticated session and membership in that organization. The browser uses the same paths under `/api/backend`, with the existing HttpOnly cookie/CSRF flow.
+
+| Method | Path | Behavior |
+| --- | --- | --- |
+| GET | `/config` | Authorized file-size limit and supported formats |
+| POST | base path | One multipart `file`; HTTP 202 after storage and queueing |
+| GET | base path | `q`, `status`, `format`, `sort`, `page`, `page_size` |
+| GET | `/{id}` | Metadata and processing status/error |
+| GET | `/{id}/content` | Paginated extracted source sections |
+| GET | `/{id}/download` | Authorized original attachment |
+| POST | `/{id}/retry` | Uploader/Admin retries a Failed document |
+| DELETE | `/{id}` | Uploader/Admin hides document and queues cleanup; HTTP 202 |
+
+From `backend`, run the complete PostgreSQL-backed suite and backend checks:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/test_postgres.py
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m alembic check
+```
+
+From `frontend`:
+
+```powershell
+npm test
+npm run lint
+npm run typecheck
+npm run build
+```
+
+After building the frontend, run from `backend`:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/smoke_fullstack.py
+```
+
+The HTTP smoke test starts its own API, production Next.js server, and worker, using a temporary database and storage directory. Ports 3001/8001 must be free. It verifies Phase 2 auth plus multipart upload, actual processing, content references, filename filters, download bytes, organization restrictions, and deletion cleanup. It removes only its own temporary resources. The backend suite also covers invalid/oversized files, PDF/DOCX/TXT extraction, failed extraction, source/chunk integrity, rollback, timeout/recovery, deletion races, and storage failures. Frontend tests cover upload progress/cancellation, validation/errors, library filters, organization switching, details, and deletion controls.
+
+To process at most one ready job for diagnosis, run `python -m app.documents.worker --once` with the backend virtual environment. A Pending document with no worker is expected; a Failed document has a user-facing explanation. Worker logs identify jobs by document UUID and do not print credentials or extracted content.
 
 ## Phase 2: Windows quick start
 
@@ -86,7 +209,7 @@ All API paths below have the `/api/v1` prefix; the browser proxy uses `/api/back
 | PATCH / DELETE | `/organizations/{id}/members/{user_id}` | Organization Admin; last Admin protected |
 | GET | `/health`, `/health/ready` | Public Phase 1 endpoints, preserved |
 
-Foreign keys and uniqueness/check constraints enforce structural integrity. Membership mutations lock the organization row before authorization and last-Admin checks, preventing concurrent demotions/removals from leaving zero Admins. UUIDs are identifiers, not authorization. No global user directory, invitation emails, verification, password recovery, MFA, SSO, documents, RAG, or agents are included.
+Foreign keys and uniqueness/check constraints enforce structural integrity. Membership mutations lock the organization row before authorization and last-Admin checks, preventing concurrent demotions/removals from leaving zero Admins. UUIDs are identifiers, not authorization. Documents are added in Phase 3 above. No global user directory, invitation emails, verification, password recovery, MFA, SSO, RAG, or agents are included.
 
 ### Phase 2 automated checks
 
@@ -252,7 +375,7 @@ SQLAlchemy owns persistence; route modules access sessions through an injectable
 
 Review generated migrations before applying them. Schema changes are explicit, not performed during application startup. The initial migration enables pgvector without adding premature domain tables. Its downgrade preserves the extension because it may be shared or have dependent data. Backend dependencies use bounded compatible ranges; frontend installations produce a package lock for reproducibility.
 
-Application use cases live separately from HTTP and database code. Organization authorization is implemented in Phase 2; future document retrieval must enforce those permissions before content reaches any AI adapter. No document or AI endpoints are included yet.
+Application use cases live separately from HTTP and database code. Organization authorization is implemented in Phase 2 and enforced by Phase 3 document retrieval. Future AI adapters must preserve these checks before consuming source content. AI endpoints remain deferred.
 
 ## Stopping and troubleshooting
 

@@ -13,6 +13,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import httpx
 import jwt
@@ -106,6 +107,7 @@ def exercise(secret: str):
             == 403
         )
         assert len(bob.get("/api/backend/organizations").json()) == 2
+        documents(alice, bob, a, b)
         assert alice.post("/api/backend/auth/logout").status_code == 403
         print("HTTP smoke: signup, server guard, cookie proxy, CSRF, multi-org isolation passed.")
 
@@ -145,6 +147,75 @@ def exercise(secret: str):
         print("HTTP smoke: expired SSR guard, refresh rotation/replay, login and logout passed.")
 
 
+def documents(alice: httpx.Client, bob: httpx.Client, org_a: str, org_b: str):
+    assert alice.get("/documents").status_code == 200
+    csrf = alice.get("/api/backend/auth/csrf").json()["csrf_token"]
+    raw = b"DocuMind full-stack source text. " * 1500  # Exceeds the old JSON proxy limit.
+    response = alice.post(
+        f"/api/backend/organizations/{org_a}/documents",
+        files={"file": ("smoke.txt", raw, "text/plain")},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 202, "Document upload through streaming proxy failed"
+    oversized = alice.post(
+        f"/api/backend/organizations/{org_a}/documents",
+        files={"file": ("too-large.txt", b"x" * 70000, "text/plain")},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert oversized.status_code == 413
+    document_id = response.json()["id"]
+    base = f"/api/backend/organizations/{org_a}/documents/{document_id}"
+    deadline = time.monotonic() + 35
+    while time.monotonic() < deadline:
+        record = alice.get(base).json()
+        if record["status"] in {"completed", "failed"}:
+            break
+        time.sleep(0.2)
+    assert record["status"] == "completed", "Document worker did not finish processing"
+    assert record["chunk_count"] > 1
+    assert (
+        "DocuMind full-stack source text"
+        in alice.get(base + "/content").json()["sections"][0]["text"]
+    )
+    downloaded = alice.get(base + "/download")
+    assert downloaded.content == raw
+    assert "attachment" in downloaded.headers["content-disposition"]
+    assert (
+        alice.get(f"/api/backend/organizations/{org_a}/documents?q=smoke&status=completed").json()[
+            "total"
+        ]
+        == 1
+    )
+    assert (
+        bob.get(f"/api/backend/organizations/{org_b}/documents/{document_id}/download").status_code
+        == 404
+    )
+    assert (
+        mutate(bob, f"/organizations/{org_a}/documents/{document_id}", method="DELETE").status_code
+        == 403
+    )
+    assert (
+        mutate(
+            alice, f"/organizations/{org_a}/documents/{document_id}", method="DELETE"
+        ).status_code
+        == 202
+    )
+    assert alice.get(base).status_code == 404
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        with psycopg.connect(os.environ["SMOKE_DATABASE_URL"], connect_timeout=3) as connection:
+            remaining = connection.execute(
+                "SELECT count(*) FROM documents WHERE id=%s", (document_id,)
+            ).fetchone()[0]
+        if not remaining:
+            break
+        time.sleep(0.2)
+    assert not remaining, "Document cleanup worker did not remove the deleted row"
+    print(
+        "HTTP smoke: uploads, processing, sources, search, download, isolation and deletion passed."
+    )
+
+
 def main() -> int:
     for port in (3001, 8001):
         with socket.socket() as probe:
@@ -154,15 +225,18 @@ def main() -> int:
     database = "documind_test_" + uuid.uuid4().hex
     processes = []
     secret = secrets.token_urlsafe(48)
-    with psycopg.connect(
-        host=url.host,
-        port=url.port or 5432,
-        user=url.username,
-        password=url.password,
-        dbname=url.database,
-        autocommit=True,
-        connect_timeout=5,
-    ) as admin:
+    with (
+        TemporaryDirectory(prefix="documind-smoke-storage-") as storage,
+        psycopg.connect(
+            host=url.host,
+            port=url.port or 5432,
+            user=url.username,
+            password=url.password,
+            dbname=url.database,
+            autocommit=True,
+            connect_timeout=5,
+        ) as admin,
+    ):
         admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
         env = os.environ.copy()
         test_url = url.set(
@@ -175,6 +249,13 @@ def main() -> int:
             COOKIE_SECURE="false",
             CORS_ORIGINS='["http://localhost:3001"]',
             BACKEND_URL="http://127.0.0.1:8001",
+            STORAGE_PATH=storage,
+            WORKER_POLL_SECONDS="0.1",
+            UPLOAD_MAX_BYTES="65536",
+        )
+        # Connection URI passed through memory/environment only, never command arguments or logs.
+        os.environ["SMOKE_DATABASE_URL"] = test_url.render_as_string(hide_password=False).replace(
+            "postgresql+psycopg://", "postgresql://", 1
         )
         try:
             subprocess.run(
@@ -200,6 +281,7 @@ def main() -> int:
                     BACKEND,
                 ),
                 (["node", "node_modules/next/dist/bin/next", "start", "-p", "3001"], FRONTEND),
+                ([sys.executable, "-m", "app.documents.worker"], BACKEND),
             ]:
                 processes.append(
                     subprocess.Popen(
@@ -232,6 +314,7 @@ def main() -> int:
             )
             admin.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
             print("Removed smoke-test servers and their temporary database; dev data untouched.")
+            os.environ.pop("SMOKE_DATABASE_URL", None)
 
 
 if __name__ == "__main__":

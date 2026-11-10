@@ -44,19 +44,22 @@ def identity_db():
 
 
 @pytest.fixture
-def clients(identity_db):
+def clients(identity_db, tmp_path):
     with ExitStack() as stack:
 
-        def factory(secure=False):
+        def factory(secure=False, **overrides):
             origin = "https://app.example.test" if secure else "http://localhost:3000"
-            settings = Settings(
+            values = dict(
                 _env_file=None,
                 database_url=os.environ["TEST_DATABASE_URL"],
                 auth_secret=SecretStr("test-only-signing-key-" + "x" * 40),
                 cookie_secure=secure,
                 environment="production" if secure else "development",
                 cors_origins=[origin],
+                storage_path=tmp_path / "documents",
             )
+            values.update(overrides)
+            settings = Settings(**values)
             app = create_app(settings)
 
             def db_session():
