@@ -3,6 +3,19 @@ import { proxyRequest } from "./proxy";
 
 afterEach(() => vi.unstubAllGlobals());
 
+it("allows scoped intelligence routes and rejects arbitrary provider paths", async () => {
+  const org = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ sources: [] }));
+  vi.stubGlobal("fetch", fetcher);
+  const response = await proxyRequest(new Request("http://localhost", {
+    method: "POST", headers: { Cookie: "dm_access=session", "X-CSRF-Token": "csrf" }, body: "{}",
+  }), ["organizations", org, "intelligence", "search"]);
+  expect(response.status).toBe(200);
+  expect(fetcher.mock.calls[0][1].headers.get("cookie")).toBe("dm_access=session");
+  expect((await proxyRequest(new Request("http://localhost"),
+    ["organizations", org, "intelligence", "providers", "arbitrary"])).status).toBe(404);
+});
+
 it("forwards origin, CSRF and cookies and preserves individual Set-Cookie headers", async () => {
   const headers = new Headers({ "Content-Type": "application/json" });
   headers.append(

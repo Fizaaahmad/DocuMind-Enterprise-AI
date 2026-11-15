@@ -373,6 +373,7 @@ export function DocumentLibrary({
             <Link className="btn-secondary" href="/dashboard">
               Team & access
             </Link>
+            <Link className="btn-secondary" href="/assistant">AI assistant</Link>
           </div>
         </div>
       </header>

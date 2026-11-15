@@ -1,5 +1,173 @@
 # DocuMind
 
+## Phase 4: local semantic search and provider-neutral assistant
+
+Phase 4 adds Sentence Transformers CPU embeddings, pgvector cosine retrieval, a
+PostgreSQL indexing stage, private organization-bound conversations, and an
+assistant at **http://localhost:3000/assistant**. Existing health, authentication,
+organization, document, and OCR features remain available.
+
+The only answer provider currently implemented is a **development mock**. It
+selects exact retrieved passages, makes no API calls, and is labeled in the UI
+and every stored response. It is an extractive preview, not generative AI or a
+claim that the question was answered. Production rejects the mock provider.
+No Claude, Ollama, OpenAI, Gemini, or provider SDK is required.
+
+### Windows setup and startup
+
+From the repository root in PowerShell, install CPU-only PyTorch first, then the
+backend dependencies. This avoids downloading GPU dependencies unnecessarily:
+
+```powershell
+Set-Location 'C:\Users\fizaa\Projects\Side Projects\DocuMind'
+docker compose up -d db
+.\backend\.venv\Scripts\python.exe -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+.\backend\.venv\Scripts\python.exe -m pip install -e './backend[dev]'
+Set-Location backend
+.\.venv\Scripts\python.exe -m app.intelligence.cli prepare
+```
+
+`prepare` explicitly downloads the configured model into `backend/var/models`
+(ignored by Git), checks its dimension, and requires internet access. Runtime
+inference uses cached files only. The default model is English, 384-dimensional,
+with a pinned revision. Model downloads and a first cold load can take time.
+
+Add or update these keys in **backend/.env**, preserving existing secrets:
+
+```dotenv
+EMBEDDINGS_ENABLED=true
+LLM_PROVIDER=mock
+LLM_MODEL=extractive-mock-v1
+```
+
+Other settings and their defaults are listed in `backend/.env.example`. API and
+worker must use the same embedding model, revision, dimension, and cache path.
+Changing the profile requires backfilling; old-profile vectors are never used
+with the new query encoder. Dimensions must match the model's native output;
+arbitrary truncation is not enabled. No LLM API key is needed for the mock.
+
+Before starting the API/worker, stop old instances with Ctrl+C, then run from
+`backend/`:
+
+```powershell
+# Validate migrations against a disposable test database first.
+.\.venv\Scripts\python.exe scripts/test_postgres.py
+# Apply the reviewed additive migration to the development database.
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m alembic check
+.\.venv\Scripts\python.exe -m app.intelligence.cli check
+# Enqueue existing completed documents; safe to rerun, skips active/current jobs.
+.\.venv\Scripts\python.exe -m app.intelligence.cli backfill
+# Optionally restrict the local administrative backfill command:
+# .\.venv\Scripts\python.exe -m app.intelligence.cli backfill --organization <organization-UUID>
+.\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --reload
+```
+
+In a **second PowerShell terminal**, run the existing worker continuously:
+
+```powershell
+Set-Location 'C:\Users\fizaa\Projects\Side Projects\DocuMind\backend'
+.\.venv\Scripts\python.exe -m app.documents.worker
+```
+
+In a **third PowerShell terminal**, run the frontend:
+
+```powershell
+Set-Location 'C:\Users\fizaa\Projects\Side Projects\DocuMind\frontend'
+npm install
+npm run dev
+```
+
+### Test the complete workflow
+
+1. Log in and upload a TXT/PDF/DOCX containing a clear fact, such as
+   “Employees receive twenty days of annual leave each year.”
+2. Open **AI assistant** from the dashboard. Select the organization. Extraction
+   completes first; indexing then progresses through pending/processing/completed.
+   Existing documents need backfill or **Index document** (uploader/Admin only).
+3. Enter “How much vacation can employees take?” and click **Semantic search**.
+   Open a hit to inspect the exact source text and original page/section label.
+4. Click **Preview mock answer**. Verify its development label, exact passages,
+   clickable references, and persisted conversation after refresh. Select one or
+   more documents to restrict retrieval; no selection searches all indexed documents.
+5. Try an unrelated question: sufficiently low-scoring evidence is excluded and
+   the assistant abstains when nothing qualifies. Similarity is not a calibrated
+   confidence score; tune `RETRIEVAL_MIN_SIMILARITY` for your corpus.
+6. Switch organizations or log in as another user. Documents and conversations
+   must remain isolated. Conversations are private to their creator even among
+   members of the same organization. Removing membership revokes access.
+7. Delete a cited document. Search excludes it immediately; history hides affected
+   answers/citations and reports unavailable sources. The worker removes files,
+   sections, chunks, and vectors. Indexing failures preserve readable extracted text.
+
+Automated checks, from `backend/` and `frontend/` respectively:
+
+```powershell
+# backend
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe scripts/test_postgres.py
+# Opt-in real-model integration: cached local inference, no paid API calls.
+$env:EMBEDDING_INTEGRATION = '1'
+.\.venv\Scripts\python.exe scripts/test_postgres.py -q tests/test_intelligence.py
+Remove-Item Env:EMBEDDING_INTEGRATION
+# Optional real HTTP test against production Next.js on ports 3001/8001.
+# Run npm run build in frontend first; the cached embedding model is required.
+$env:SMOKE_INTELLIGENCE = '1'
+.\.venv\Scripts\python.exe scripts/smoke_fullstack.py
+Remove-Item Env:SMOKE_INTELLIGENCE
+# frontend (a separate terminal in frontend/)
+npm test
+npm run lint
+npm run typecheck
+npm run build
+```
+
+### Architecture and extension points
+
+`app/intelligence/embeddings.py` lazily caches one CPU model per process, limits
+threads/batch size, and pools token windows so existing long character chunks
+are not silently truncated. `indexing.py` reuses `document_jobs` with `embed`
+jobs, expiring fenced leases, retry budgets, atomic publication, and separate
+index status/errors. No Redis, Celery, or additional service is introduced.
+
+The additive `0004_intelligence` migration adds `chunk_embeddings`,
+`ai_conversations`, `ai_messages`, `ai_usage`, and document index metadata.
+Vectors use organization/document/chunk composite foreign keys and profile hashes.
+Exact cosine retrieval filters organization, document selection, live document
+state, and model profile before returning results. Relational scope indexes
+support filtering. There is no approximate vector index yet: large corpora need
+measured performance tuning and a dimension/profile-specific ANN index later.
+
+`providers.py` defines the provider protocol, generation settings (model, secret,
+deadline, temperature, output budget), trusted system instructions, evidence,
+and supported-claim result. Implement an adapter and register it explicitly to
+add a real provider; API/frontend/retrieval need no provider-specific changes.
+Adapters must treat question/history/passages as untrusted data and honor network
+deadlines. Keep credentials in backend environment variables only. Exceptions
+are sanitized; neither credentials nor extracted content are logged.
+
+`rag.py` validates every source ID and exact quote against the authorized context.
+Only verified quoted claims are published. Supporting arbitrary generated
+paraphrases requires a separately validated grounding strategy; a matching source
+ID alone is not proof of support. No provider-native citation feature is used.
+Historical source-bearing answers are not supplied as fresh evidence: only recent
+questions and currently selected retrieved passages reach the provider. Automatic
+follow-up query rewriting and conversational pronoun resolution are not included.
+
+Assistant endpoints live under `/api/v1/organizations/{id}/intelligence`:
+`GET status`, `POST search`, `POST documents/{id}/index`,
+`GET/POST conversations`, `DELETE conversations/{id}`, and
+`GET/POST conversations/{id}/messages`. All reuse live authentication/membership;
+mutations retain CSRF validation. Next.js uses its existing server guard and
+cookie proxy, with explicit AI paths, bounded bodies, and a 120-second deadline.
+
+Usage reservations are serialized per user and persist separately from deletable
+history. `AI_DAILY_REQUESTS` caps answer attempts across organizations per UTC day;
+failed/interrupted attempts count. Context, output, retrieval, and concurrency
+limits also apply. The current mock has no billable token usage. Real adapters
+will need provider usage reconciliation before implementing monetary budgets.
+The UI lists the latest 100 conversations and up to 500 documents per organization.
+
 Enterprise document intelligence platform. Phase 3 adds organization-scoped document storage, a document library, source-aware text extraction, optional selective Tesseract OCR, chunking, and durable PostgreSQL-backed processing to the authenticated full-stack foundation. Embeddings, Claude, RAG, and agents are not implemented.
 
 ## Optional PDF OCR: Windows installation and configuration

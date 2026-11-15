@@ -39,6 +39,11 @@ class Document(Base):
     checksum: Mapped[str | None] = mapped_column(String(64))
     storage_ready: Mapped[bool] = mapped_column(default=False, server_default="false")
     status: Mapped[str] = mapped_column(String(16), default="pending")
+    index_status: Mapped[str] = mapped_column(
+        String(16), default="unindexed", server_default="unindexed"
+    )
+    index_error: Mapped[str | None] = mapped_column(String(500))
+    index_profile: Mapped[str | None] = mapped_column(String(64))
     error: Mapped[str | None] = mapped_column(String(500))
     section_count: Mapped[int] = mapped_column(default=0, server_default="0")
     chunk_count: Mapped[int] = mapped_column(default=0, server_default="0")
@@ -76,6 +81,7 @@ class DocumentSection(Base):
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
     __table_args__ = (
+        UniqueConstraint("id", "document_id", "organization_id", name="uq_chunk_identity_scope"),
         ForeignKeyConstraint(
             ["section_id", "document_id", "organization_id"],
             [
@@ -107,7 +113,7 @@ class DocumentJob(Base):
             ondelete="CASCADE",
         ),
         UniqueConstraint("document_id"),
-        CheckConstraint("kind IN ('process','delete')", name="kind"),
+        CheckConstraint("kind IN ('process','delete','embed')", name="kind"),
         CheckConstraint("state IN ('pending','running','completed','failed')", name="state"),
         Index("ix_document_jobs_claim", "state", "available_at"),
     )

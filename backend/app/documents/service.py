@@ -2,14 +2,14 @@ import uuid
 from datetime import timedelta
 
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.security import now
 from app.documents.storage import UploadTooLarge, get_storage
 from app.documents.validation import InvalidDocument, safe_filename, validate_file
-from app.models import Document, DocumentJob, User
+from app.models import ChunkEmbedding, Document, DocumentJob, User
 from app.services.organizations import membership
 
 
@@ -35,6 +35,13 @@ def can_manage(db: Session, org_id: uuid.UUID, user: User, document: Document):
 
 def queue_deletion(db: Session, document: Document):
     document.deleted_at = now()
+    document.index_status = "unindexed"
+    db.execute(
+        delete(ChunkEmbedding).where(
+            ChunkEmbedding.document_id == document.id,
+            ChunkEmbedding.organization_id == document.organization_id,
+        )
+    )
     job = db.scalar(
         select(DocumentJob)
         .where(

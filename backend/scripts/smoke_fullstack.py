@@ -58,13 +58,15 @@ def mutate(client: httpx.Client, path: str, data=None, method="POST"):
 def exercise(secret: str):
     password = secrets.token_urlsafe(24)
     with (
-        httpx.Client(base_url=ORIGIN, headers={"Origin": ORIGIN}, timeout=15) as alice,
-        httpx.Client(base_url=ORIGIN, headers={"Origin": ORIGIN}, timeout=15) as bob,
+        httpx.Client(base_url=ORIGIN, headers={"Origin": ORIGIN}, timeout=120) as alice,
+        httpx.Client(base_url=ORIGIN, headers={"Origin": ORIGIN}, timeout=120) as bob,
     ):
         assert alice.get("/").status_code == 200
         assert alice.get("/signup").status_code == 200
         assert alice.get("/login").status_code == 200
         guard = alice.get("/dashboard")
+        assert guard.status_code == 307 and guard.headers["location"] == "/login"
+        guard = alice.get("/assistant")
         assert guard.status_code == 307 and guard.headers["location"] == "/login"
         for client, name in [(alice, "Alice"), (bob, "Bob")]:
             response = mutate(
@@ -194,12 +196,41 @@ def documents(alice: httpx.Client, bob: httpx.Client, org_a: str, org_b: str):
         mutate(bob, f"/organizations/{org_a}/documents/{document_id}", method="DELETE").status_code
         == 403
     )
+    chat_path = None
+    if os.environ.get("SMOKE_INTELLIGENCE") == "1":
+        assert alice.get("/assistant").status_code == 200
+        ai = f"/organizations/{org_a}/intelligence"
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
+            state = alice.get("/api/backend" + ai + "/status").json()
+            indexed = next(d for d in state["documents"] if d["id"] == document_id)
+            if indexed["index_status"] in {"completed", "failed"}:
+                break
+            time.sleep(0.5)
+        assert indexed["index_status"] == "completed", "Real embedding indexing failed"
+        data = {"question": "DocuMind full-stack source text", "document_ids": [document_id]}
+        found = mutate(alice, ai + "/search", data)
+        assert found.status_code == 200 and found.json()["sources"]
+        conv = mutate(alice, ai + "/conversations").json()["id"]
+        chat_path = ai + f"/conversations/{conv}/messages"
+        answer = mutate(alice, chat_path, data)
+        assert answer.status_code == 200, "Mock RAG request failed through proxy"
+        assert answer.json()["is_mock"] and answer.json()["citations"]
+        assert bob.get("/api/backend" + chat_path).status_code == 404
+        foreign = f"/organizations/{org_b}/intelligence/search"
+        assert mutate(bob, foreign, data).status_code == 404
     assert (
         mutate(
             alice, f"/organizations/{org_a}/documents/{document_id}", method="DELETE"
         ).status_code
         == 202
     )
+    if chat_path:
+        history = alice.get("/api/backend" + chat_path).json()
+        assert history[0]["citations"] == []
+        print(
+            "HTTP smoke: real embeddings, scoped search, mock RAG and private history passed."
+        )
     assert alice.get(base).status_code == 404
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
@@ -253,6 +284,8 @@ def main() -> int:
             WORKER_POLL_SECONDS="0.1",
             UPLOAD_MAX_BYTES="65536",
         )
+        if os.environ.get("SMOKE_INTELLIGENCE") == "1":
+            env.update(EMBEDDINGS_ENABLED="true", LLM_PROVIDER="mock", HF_HUB_OFFLINE="1")
         # Connection URI passed through memory/environment only, never command arguments or logs.
         os.environ["SMOKE_DATABASE_URL"] = test_url.render_as_string(hide_password=False).replace(
             "postgresql+psycopg://", "postgresql://", 1

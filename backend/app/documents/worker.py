@@ -20,6 +20,8 @@ from app.core.security import now
 from app.db.session import build_engine
 from app.documents.chunking import chunk_text
 from app.documents.storage import Storage, get_storage
+from app.intelligence.embeddings import EmbeddingUnavailable, profile
+from app.intelligence.indexing import index_document
 from app.models import Document, DocumentChunk, DocumentJob, DocumentSection
 
 logger = logging.getLogger(__name__)
@@ -71,7 +73,14 @@ def claim_job(engine: Engine, settings: Settings) -> Claim | None:
         )
         if not document:
             return None
-        if job.kind == "process" and job.attempts >= settings.worker_max_attempts:
+        if job.kind in {"process", "embed"} and job.attempts >= settings.worker_max_attempts:
+            if job.kind == "embed":
+                document.index_status = "failed"
+                document.index_error = "Indexing interrupted too many times; retry indexing"
+                job.state, job.last_error = "failed", document.index_error
+                job.lease_token = job.lease_until = None
+                db.commit()
+                return None
             document.status, document.error = (
                 "failed",
                 "Processing interrupted too many times; retry this document",
@@ -84,7 +93,12 @@ def claim_job(engine: Engine, settings: Settings) -> Claim | None:
         token = uuid.uuid4()
         job.state, job.lease_token = "running", token
         job.lease_until = now() + timedelta(
-            seconds=processing_timeout(settings, document.format) + 30
+            seconds=(
+                settings.indexing_timeout_seconds
+                if job.kind == "embed"
+                else processing_timeout(settings, document.format)
+            )
+            + 30
         )
         job.attempts += 1
         if job.kind == "process":
@@ -250,6 +264,15 @@ def publish(engine: Engine, claim: Claim, result: dict, settings: Settings) -> b
         )
         document.processing_completed_at = now()
         job.state, job.last_error = "completed", None
+        document.index_status, document.index_error, document.index_profile = (
+            "unindexed",
+            None,
+            None,
+        )
+        if settings.embeddings_enabled:
+            document.index_status, document.index_profile = "pending", profile(settings)
+            job.kind, job.state, job.attempts = "embed", "pending", 0
+            job.available_at = now()
         job.lease_until = job.lease_token = None
         db.commit()
         return True
@@ -267,10 +290,15 @@ def fail(engine: Engine, claim: Claim, settings: Settings, message: str, transie
             job.available_at = now() + timedelta(seconds=min(300, 2 ** min(job.attempts, 8)))
             if claim.kind == "process":
                 document.status = "pending"
+            elif claim.kind == "embed":
+                document.index_status, document.index_error = "pending", message
         else:
             job.state = "failed"
-            document.status, document.error = "failed", message
-            document.processing_completed_at = now()
+            if claim.kind == "embed":
+                document.index_status, document.index_error = "failed", message
+            else:
+                document.status, document.error = "failed", message
+                document.processing_completed_at = now()
         db.commit()
 
 
@@ -287,6 +315,8 @@ def run_once(engine: Engine, settings: Settings, extractor=extract_in_process) -
                     storage.delete(claim.organization_id, claim.document_id)
                     db.delete(document)
                     db.commit()
+        elif claim.kind == "embed":
+            index_document(engine, claim, settings)
         elif not claim.ready:
             storage.delete(claim.organization_id, claim.document_id)
             fail(engine, claim, settings, "Upload was interrupted; please upload the file again")
@@ -294,13 +324,20 @@ def run_once(engine: Engine, settings: Settings, extractor=extract_in_process) -
             publish(engine, claim, extractor(storage, claim, settings), settings)
     except subprocess.TimeoutExpired:
         fail(engine, claim, settings, "Document processing exceeded the configured time limit")
+    except EmbeddingUnavailable as exc:
+        fail(engine, claim, settings, str(exc)[:500])
     except ValueError as exc:
         fail(engine, claim, settings, str(exc)[:500])
     except OSError:
         fail(engine, claim, settings, "File storage is temporarily unavailable", transient=True)
     except Exception:
         logger.warning("Document job failed: document=%s", claim.document_id)
-        fail(engine, claim, settings, "Document processing failed; please retry", transient=True)
+        message = (
+            "Indexing failed; check worker configuration and retry indexing"
+            if claim.kind == "embed"
+            else "Document processing failed; please retry"
+        )
+        fail(engine, claim, settings, message, transient=True)
     return True
 
 

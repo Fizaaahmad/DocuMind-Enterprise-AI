@@ -9,7 +9,14 @@ export async function proxyRequest(
     /^organizations(?:\/[0-9a-f-]{36}(?:\/members(?:\/[0-9a-f-]{36})?)?)?$/i;
   const documents =
     /^organizations\/[0-9a-f-]{36}\/documents(?:\/(?:config|[0-9a-f-]{36}(?:\/(?:content|download|retry))?))?$/i;
-  if (!auth.test(path) && !orgs.test(path) && !documents.test(path))
+  const intelligence =
+    /^organizations\/[0-9a-f-]{36}\/intelligence\/(?:status|search|documents\/[0-9a-f-]{36}\/index|conversations(?:\/[0-9a-f-]{36}(?:\/messages)?)?)$/i;
+  if (
+    !auth.test(path) &&
+    !orgs.test(path) &&
+    !documents.test(path) &&
+    !intelligence.test(path)
+  )
     return new Response(null, { status: 404 });
   const headers = new Headers();
   for (const key of ["cookie", "origin", "content-type", "x-csrf-token"]) {
@@ -90,7 +97,9 @@ export async function proxyRequest(
         body,
         cache: "no-store",
         redirect: "manual",
-        signal: AbortSignal.timeout(upload ? 120000 : 15000),
+        signal: AbortSignal.timeout(
+          upload || intelligence.test(path) ? 120000 : 15000,
+        ),
         ...(body ? { duplex: "half" } : {}),
       } as RequestInit & { duplex?: "half" },
     );

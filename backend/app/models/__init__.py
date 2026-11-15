@@ -2,8 +2,13 @@
 
 from app.models.documents import Document, DocumentChunk, DocumentJob, DocumentSection
 from app.models.identity import AuthSession, Membership, Organization, RefreshToken, User
+from app.models.intelligence import AIUsage, ChunkEmbedding, Conversation, Message
 
 __all__ = [
+    "AIUsage",
+    "ChunkEmbedding",
+    "Conversation",
+    "Message",
     "AuthSession",
     "Membership",
     "Organization",

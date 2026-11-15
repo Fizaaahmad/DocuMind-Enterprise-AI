@@ -153,6 +153,7 @@ export function Dashboard({ user }: { user: User }) {
             DocuMind<span className="text-indigo-600">.</span>
           </Link>
           <div className="flex items-center gap-4">
+            <Link className="btn-secondary" href="/assistant">AI assistant</Link>
             <Link
               className="btn-primary"
               href={

@@ -29,6 +29,24 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = Field(default=2, ge=0.1, le=60)
     worker_max_attempts: int = Field(default=3, ge=1, le=10)
     processing_max_chunks: int = Field(default=10000, ge=100, le=100000)
+    embeddings_enabled: bool = False
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_revision: str = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+    embedding_dimension: int = Field(default=384, ge=1, le=4096)
+    embedding_cache_path: Path = BACKEND_ROOT / "var" / "models"
+    embedding_batch_size: int = Field(default=16, ge=1, le=64)
+    embedding_threads: int = Field(default=2, ge=1, le=8)
+    indexing_timeout_seconds: int = Field(default=600, ge=30, le=3600)
+    retrieval_limit: int = Field(default=6, ge=1, le=20)
+    retrieval_min_similarity: float = Field(default=0.3, ge=-1, le=1)
+    rag_context_characters: int = Field(default=12000, ge=1000, le=40000)
+    llm_provider: str = "disabled"
+    llm_model: str = "extractive-mock-v1"
+    llm_api_key: SecretStr | None = None
+    llm_timeout_seconds: int = Field(default=30, ge=1, le=90)
+    llm_max_output_tokens: int = Field(default=1024, ge=64, le=4096)
+    llm_temperature: float = Field(default=0, ge=0, le=2)
+    ai_daily_requests: int = Field(default=100, ge=1, le=10000)
     ocr_enabled: bool = False
     tesseract_cmd: str = Field(default="tesseract", min_length=1, max_length=2048)
     ocr_tessdata_dir: Path | None = None
@@ -52,6 +70,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security(self):
+        if not self.embedding_cache_path.is_absolute():
+            self.embedding_cache_path = (BACKEND_ROOT / self.embedding_cache_path).resolve()
+        if self.llm_provider == "mock" and self.environment != "development":
+            raise ValueError("The mock LLM provider is development-only")
         if self.ocr_tessdata_dir and not self.ocr_tessdata_dir.is_absolute():
             self.ocr_tessdata_dir = (BACKEND_ROOT / self.ocr_tessdata_dir).resolve()
         if self.chunk_overlap >= self.chunk_size:

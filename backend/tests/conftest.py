@@ -31,9 +31,12 @@ def identity_db():
     with admin.begin() as connection:
         connection.execute(text(f'CREATE SCHEMA "{schema}"'))
     engine = create_engine(
-        url, connect_args={**connection_args, "options": f"-c search_path={schema}"}
+        url, connect_args={**connection_args, "options": f"-c search_path={schema},public"}
     )
-    Base.metadata.create_all(engine)
+    # Explicit schema prevents public application tables satisfying create_all's
+    # existence checks, while public exposes pgvector types and operators.
+    with engine.begin() as connection:
+        Base.metadata.create_all(connection.execution_options(schema_translate_map={None: schema}))
     try:
         yield engine
     finally:

@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import current_user, get_db
@@ -13,7 +13,7 @@ from app.documents.schemas import ContentOutput, DocumentList, DocumentOutput, S
 from app.documents.service import can_manage, find_document, queue_deletion, upload_document
 from app.documents.storage import get_storage
 from app.documents.validation import MIME_TYPES
-from app.models import Document, DocumentJob, DocumentSection, User
+from app.models import ChunkEmbedding, Document, DocumentJob, DocumentSection, User
 from app.services.organizations import membership
 
 router = APIRouter(prefix="/organizations/{organization_id}/documents", tags=["documents"])
@@ -200,6 +200,13 @@ def retry(
         .with_for_update()
     )
     document.status, document.error = "pending", None
+    document.index_status, document.index_profile, document.index_error = "unindexed", None, None
+    db.execute(
+        delete(ChunkEmbedding).where(
+            ChunkEmbedding.document_id == document_id,
+            ChunkEmbedding.organization_id == organization_id,
+        )
+    )
     document.chunk_size = request.app.state.settings.chunk_size
     document.chunk_overlap = request.app.state.settings.chunk_overlap
     document.processing_started_at = document.processing_completed_at = None
