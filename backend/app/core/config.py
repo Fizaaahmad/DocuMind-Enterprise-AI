@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, PostgresDsn, SecretStr, model_validator
+from pydantic import Field, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -29,9 +29,31 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = Field(default=2, ge=0.1, le=60)
     worker_max_attempts: int = Field(default=3, ge=1, le=10)
     processing_max_chunks: int = Field(default=10000, ge=100, le=100000)
+    ocr_enabled: bool = False
+    tesseract_cmd: str = Field(default="tesseract", min_length=1, max_length=2048)
+    ocr_tessdata_dir: Path | None = None
+    ocr_language: str = Field(
+        default="eng",
+        pattern=r"^[A-Za-z][A-Za-z0-9_]*(\+[A-Za-z][A-Za-z0-9_]*){0,2}$",
+        max_length=128,
+    )
+    ocr_dpi: int = Field(default=200, ge=72, le=400)
+    ocr_min_text_characters: int = Field(default=20, ge=1, le=2000)
+    ocr_max_pages: int = Field(default=20, ge=1, le=200)
+    ocr_max_pixels: int = Field(default=12_000_000, ge=100_000, le=25_000_000)
+    ocr_page_timeout_seconds: int = Field(default=30, ge=1, le=120)
+    ocr_document_timeout_seconds: int = Field(default=180, ge=1, le=600)
+    ocr_memory_limit_mb: int = Field(default=512, ge=256, le=2048)
+
+    @field_validator("ocr_tessdata_dir", mode="before")
+    @classmethod
+    def optional_tessdata(cls, value):
+        return None if value == "" else value
 
     @model_validator(mode="after")
     def validate_security(self):
+        if self.ocr_tessdata_dir and not self.ocr_tessdata_dir.is_absolute():
+            self.ocr_tessdata_dir = (BACKEND_ROOT / self.ocr_tessdata_dir).resolve()
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("CHUNK_OVERLAP must be smaller than CHUNK_SIZE")
         if not self.storage_path.is_absolute():

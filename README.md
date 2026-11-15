@@ -1,6 +1,145 @@
 # DocuMind
 
-Enterprise document intelligence platform. Phase 3 adds organization-scoped document storage, a document library, source-aware text extraction, chunking, and durable PostgreSQL-backed processing to the authenticated full-stack foundation. Embeddings, Claude, RAG, and agents are not implemented.
+Enterprise document intelligence platform. Phase 3 adds organization-scoped document storage, a document library, source-aware text extraction, optional selective Tesseract OCR, chunking, and durable PostgreSQL-backed processing to the authenticated full-stack foundation. Embeddings, Claude, RAG, and agents are not implemented.
+
+## Optional PDF OCR: Windows installation and configuration
+
+OCR is **disabled by default**. Normal PDF extraction, DOCX, TXT, authentication, and document permissions do not require Tesseract. Install the native executable separately; no Python OCR wrapper or new service is needed.
+
+### Install and verify Tesseract
+
+In PowerShell:
+
+```powershell
+winget install --exact --id UB-Mannheim.TesseractOCR --source winget
+& "C:\Program Files\Tesseract-OCR\tesseract.exe" --version
+& "C:\Program Files\Tesseract-OCR\tesseract.exe" --tessdata-dir "C:\Program Files\Tesseract-OCR\tessdata" --list-langs
+```
+
+Allow the installer elevation prompt if requested. The package is published in the [Microsoft WinGet community repository](https://github.com/microsoft/winget-pkgs/tree/master/manifests/u/UB-Mannheim/TesseractOCR). If WinGet is unavailable, use the Windows installer linked by the [Tesseract installation documentation](https://tesseract-ocr.github.io/tessdoc/Installation.html) at [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki). Adjust paths below if you chose another installation folder. Explicit paths work without restarting your shell to refresh PATH.
+
+Confirm that `eng` appears in the language list. Select English during installation. Additional languages need their matching `.traineddata` files. Language data can alternatively live in a private project directory. For example, from the project root:
+
+```powershell
+New-Item -ItemType Directory -Force .\backend\var\tessdata | Out-Null
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/eng.traineddata" -OutFile ".\backend\var\tessdata\eng.traineddata"
+```
+
+These are official [Tesseract fast language models](https://github.com/tesseract-ocr/tessdata_fast). If you use that directory, configure `OCR_TESSDATA_DIR=var/tessdata` rather than the installation's directory. For `eng+urd`, install both `eng.traineddata` and `urd.traineddata` into the selected directory. Up to three language codes are supported; language packs consume additional memory and processing time.
+
+### Enable OCR without changing secrets
+
+After the executable and language checks succeed, add or update these values in `backend/.env`:
+
+```dotenv
+OCR_ENABLED=true
+TESSERACT_CMD='C:/Program Files/Tesseract-OCR/tesseract.exe'
+OCR_TESSDATA_DIR='C:/Program Files/Tesseract-OCR/tessdata'
+OCR_LANGUAGE=eng
+OCR_DPI=200
+OCR_MIN_TEXT_CHARACTERS=20
+OCR_MAX_PAGES=20
+OCR_MAX_PIXELS=12000000
+OCR_PAGE_TIMEOUT_SECONDS=30
+OCR_DOCUMENT_TIMEOUT_SECONDS=180
+OCR_MEMORY_LIMIT_MB=512
+```
+
+Or apply the essential values from PowerShell at the project root, preserving all existing database/authentication configuration:
+
+```powershell
+cd backend
+@'
+from dotenv import set_key
+for key, value in {
+    "OCR_ENABLED": "true",
+    "TESSERACT_CMD": "C:/Program Files/Tesseract-OCR/tesseract.exe",
+    "OCR_TESSDATA_DIR": "C:/Program Files/Tesseract-OCR/tessdata",
+    "OCR_LANGUAGE": "eng",
+    "OCR_DPI": "200",
+}.items():
+    set_key(".env", key, value)
+'@ | .\.venv\Scripts\python.exe -
+```
+
+If using `backend/var/tessdata`, change the directory value in that command to `var/tessdata`. Relative tessdata paths resolve against `backend/`. The remaining OCR values use the defaults shown above. The executable is discovered via PATH when `TESSERACT_CMD=tesseract`; installation/language checks run only when a page needs OCR, never just because OCR is enabled.
+
+Stop the old worker with Ctrl+C in its terminal, then restart it from `backend`:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.documents.worker
+```
+
+Also restart the backend after changing shared environment settings:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000
+```
+
+No database migration is needed. Keep the normal frontend and PostgreSQL processes running. Set `OCR_ENABLED=false` and restart the worker to disable OCR again.
+
+### Test scanned and mixed PDFs
+
+1. Sign in at <http://localhost:3000>, open Documents, and select an organization.
+2. Upload an image-based/scanned PDF. It should move from Pending through Processing to Completed, unless the scan is unreadable or a resource limit is exceeded.
+3. Open details: source labels show `Page N · OCR`; chunk counts and extracted text include the recognized content. Original page numbers are retained. Source metadata records OCR engine, language, DPI, page count, and the original page numbers that used OCR.
+4. Upload a mixed PDF: native pages show `Page N · native`, scanned pages show `Page N · OCR`. Short native titles and small logos should not trigger OCR; truly blank pages and white scanned pages are skipped.
+5. After enabling OCR, select Retry processing on a previously Failed scanned PDF. Completed documents are not automatically reprocessed; upload again if you need to change their extraction.
+6. Set `OCR_MAX_PAGES=1`, restart the worker, and upload a PDF with two scanned pages. It must become Failed with a clear limit error, not Completed with partial content. Restore the setting afterward. Limits/errors publish no partial sections or chunks.
+
+To create a synthetic scanned/mixed PDF without another image library, run from `backend`:
+
+```powershell
+@'
+from pathlib import Path
+import pymupdf
+with pymupdf.open() as source:
+    page = source.new_page(width=600, height=240)
+    page.insert_text((35, 75), "DOCUMIND SCANNED DOCUMENT", fontsize=22)
+    page.insert_text((35, 120), "Revenue report number 12345", fontsize=22)
+    image = page.get_pixmap(dpi=150).tobytes("png")
+Path("var").mkdir(exist_ok=True)
+with pymupdf.open() as document:
+    document.new_page(width=600, height=240).insert_image(pymupdf.Rect(0, 0, 600, 240), stream=image)
+    document.save("var/ocr-sample.pdf")
+    document.new_page(width=600, height=240).insert_text((35, 75), "Native text stays native.", fontsize=22)
+    document.save("var/ocr-mixed-sample.pdf")
+print("Upload backend/var/ocr-sample.pdf and backend/var/ocr-mixed-sample.pdf")
+'@ | .\.venv\Scripts\python.exe -
+```
+
+### OCR safeguards, behavior, and limitations
+
+Native PyMuPDF text remains preferred. Pages below the meaningful-text threshold are OCR candidates only when substantial image/vector content suggests a scan or the extracted text is corrupt. Short native-text-only pages and small logos stay native. A bounded grayscale thumbnail detects white/empty scans before checking Tesseract. This is a page-selection heuristic, not a general image classifier: unusual layouts may need threshold adjustment, and text-heavy pages containing additional scanned regions are not independently OCRed region by region.
+
+Only selected pages are rendered at `OCR_DPI` (72–400). Dimensions are checked before full rendering; `OCR_MAX_PIXELS` defaults to 12 megapixels. Pages are rendered one at a time in grayscale, Tesseract is restricted to one OpenMP thread, and PNG/text travel through process pipes instead of temporary image files. `OCR_MAX_PAGES` counts actual OCR pages, excluding native/blank pages; the default is 20, with a validated maximum of 200. The total OCR budget includes checks, rendering, and recognition from the first candidate page.
+
+The OCR-enabled PDF parser applies OS memory limits before importing PyMuPDF: Windows uses a Job Object covering the parser and its OCR descendants; Linux uses an inherited per-process address-space limit. The default is 512 MiB (configurable 256–2048 MiB). On Linux this bounds each process, rather than an aggregate container memory quota. A host that cannot establish the memory guard fails closed with an actionable error. This is resource containment, not an OS security sandbox.
+
+Each Tesseract invocation has a page deadline (default 30 seconds), within a document OCR budget (default 180 seconds). The outer parser timeout and queue lease are extended consistently: with default OCR-enabled PDF settings, processing can take up to `PROCESSING_TIMEOUT_SECONDS + OCR_DOCUMENT_TIMEOUT_SECONDS` = 240 seconds, with a 270-second lease. DOCX/TXT and OCR-disabled PDFs keep their existing budgets. Interrupted jobs resume only after their previous lease expires. Windows closes/kills the job's OCR descendants when the parser exits; outer timeout/cancellation terminates the owned process tree. Linux parser trees run in their own process group and are killed together on timeout/cancellation.
+
+Missing executables/languages, OCR failures, no recognized text on a nonblank candidate page, and exceeded page/pixel/time limits produce sanitized Failed states. Fix the installation/settings/scan and use the existing authorized Retry action. Extraction still publishes atomically and remains bound to the same organization, document, sections, and chunk references. OCR does not change storage permissions, membership checks, downloads, or deletion fencing. OCR accuracy depends on scan quality, orientation, and installed language models; handwriting and complex layouts may be imperfect. OCR does not create a searchable replacement PDF; the original stays unchanged.
+
+### OCR regression tests and Linux deployment
+
+From `backend`, run the complete existing and OCR test suite against an isolated database:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/test_postgres.py
+.\.venv\Scripts\python.exe -m ruff check .
+```
+
+The real OCR test discovers Tesseract from `backend/.env` or PATH. Optional explicit overrides are:
+
+```powershell
+$env:TEST_TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"
+$env:TEST_OCR_TESSDATA_DIR = "C:\Program Files\Tesseract-OCR\tessdata"
+.\.venv\Scripts\python.exe -m pytest tests/test_ocr.py -q
+```
+
+That test uses a real rasterized scanned page and the actual parser child with OS resource limits. It is explicitly skipped when the executable is unavailable; broken installations or missing English data fail instead of being reported as a pass. Tests without `TEST_DATABASE_URL` skip PostgreSQL-dependent tests; use the isolated runner for complete verification. Mocked OCR tests cover page selection, blank/short-native pages, provenance, missing languages, failures, page/pixel/time limits, worker publication/rollback/retry, and resource-budget configuration. A separate real child-process test checks OS memory-limit enforcement without limiting the test runner itself.
+
+On Debian/Ubuntu, install `tesseract-ocr` and `tesseract-ocr-eng` in the worker host/image, set `TESSERACT_CMD=tesseract`, and use its installed tessdata directory (or leave `OCR_TESSDATA_DIR` empty). The Python code uses the same CLI adapter and PostgreSQL worker on Windows and Linux. No Redis, Celery, cloud OCR, Claude, embeddings, RAG, or agents are introduced.
 
 ## Phase 3: Windows setup and startup
 
@@ -42,7 +181,7 @@ The worker is a separate Python process, not an API background thread. It uses t
 3. Click a filename. Confirm original byte size, source/chunk counts, metadata, and extracted content. PDFs preserve actual page numbers. DOCX uses heading/block references and includes table text; TXT uses a text-source section. DOCX/TXT do not receive invented page numbers.
 4. Search by filename and filter by format/status; change sorting and browse pages. This is ordinary filename search, not semantic search. The library refreshes while visible; details poll during processing.
 5. Download the original and compare it with the uploaded file. Originals are attachments, not public/static assets or inline HTML previews.
-6. Try an empty file, `.exe`, a renamed non-PDF, and a file above the configured limit. They should be rejected. A damaged PDF with a recognizable PDF header may be accepted but then become Failed during extraction. Image-only PDFs fail with an OCR explanation; OCR is not part of Phase 3.
+6. Try an empty file, `.exe`, a renamed non-PDF, and a file above the configured limit. They should be rejected. A damaged PDF with a recognizable PDF header may be accepted but then become Failed during extraction. Image-only PDFs need the optional OCR setup above; with OCR disabled they fail with an explanation.
 7. On a Failed document, inspect the sanitized error and select **Retry processing** after fixing a relevant configuration issue. A damaged source must be replaced with a new upload. Retry uses the current API chunking settings; worker parsing limits apply when the worker processes it.
 8. Delete a document as its uploader or an organization Admin. It disappears immediately and all content/download endpoints deny further access. The worker removes its original file, sections, chunks, and database record. Other ordinary Members can read/download but cannot delete or retry someone else's document.
 9. Use a different browser profile/private window for a second account. Verify that files from an organization it has not joined are absent and inaccessible, even with a known document ID. A user belonging to two organizations sees a separate library for each.
@@ -70,7 +209,7 @@ The browser discovers the file limit through an authorized API configuration end
 
 Storage uses generated organization/document UUID keys, sanitized display filenames, atomic file replacement, and SHA-256 checksums. The folder is ignored by Git and never served as a static directory. API/storage calls derive keys from authorized records, not user-supplied paths. Relative `STORAGE_PATH` values resolve against `backend/` regardless of the launch directory. API and worker must share the same configured storage. For multiple hosts, supply shared private storage or a future cloud adapter through the `Storage` interface/factory; a cloud provider is not implemented yet. Back up the database and file directory together.
 
-PDF extraction uses PyMuPDF in a dedicated child process; DOCX uses python-docx; TXT accepts UTF-8 (with/without BOM) or BOM-marked UTF-16. DOCX archives are checked for unsafe paths, excessive expansion, encryption, and macros. Processing is bounded by text/page/chunk limits and a parser timeout. This is parser isolation, not an operating-system sandbox or malware scanner. PDF OCR and DOCX headers/footnotes are not extracted in this phase.
+PDF extraction uses PyMuPDF in a dedicated child process, with optional selective Tesseract OCR as documented above; DOCX uses python-docx; TXT accepts UTF-8 (with/without BOM) or BOM-marked UTF-16. DOCX archives are checked for unsafe paths, excessive expansion, encryption, and macros. Processing is bounded by text/page/chunk limits and a parser timeout. This is parser isolation, not an operating-system sandbox or malware scanner. DOCX headers/footnotes are not extracted in this phase.
 
 ### Processing and deletion architecture
 

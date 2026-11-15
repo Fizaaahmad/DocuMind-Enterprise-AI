@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+from app.documents.ocr import PDFOCR, OCRError, needs_ocr
+from app.documents.process_limits import ResourceLimitError, apply_memory_limit
 from app.documents.validation import InvalidDocument, text_encoding, validate_docx
 
 
@@ -39,8 +41,20 @@ def extract(path: Path, format: str, limits) -> dict:
                     if key in {"title", "author", "subject", "creationDate"} and value
                 }
                 metadata["page_count"] = document.page_count
+                ocr = PDFOCR(limits) if getattr(limits, "ocr_enabled", False) else None
                 for number, page in enumerate(document, 1):
-                    add(page.get_text("text", sort=True), f"Page {number}", number)
+                    text = page.get_text("text", sort=True)
+                    label = f"Page {number}"
+                    if ocr:
+                        label += " · native"
+                        if needs_ocr(page, text, limits.ocr_min_text_characters):
+                            recognized = ocr.read_page(page, number, native_text=text)
+                            if recognized is not None:
+                                text, label = recognized, f"Page {number} · OCR"
+                    add(text, label, number)
+                if ocr:
+                    metadata.update(ocr.metadata())
+                    metadata["native_page_count"] = document.page_count - len(ocr.pages)
         elif format == "docx":
             from docx import Document
             from docx.table import Table
@@ -84,15 +98,21 @@ def extract(path: Path, format: str, limits) -> dict:
             add(text, "Text document")
         else:
             raise ExtractionError("Unsupported document format")
-    except (ExtractionError, InvalidDocument):
+    except (ExtractionError, InvalidDocument, OCRError):
         raise
     except UnicodeError:
         raise ExtractionError("TXT encoding is invalid; use UTF-8 or BOM-marked UTF-16") from None
+    except MemoryError:
+        raise
     except Exception:
         raise ExtractionError(
             "Document could not be extracted; it may be damaged or unsupported"
         ) from None
     if not any(section["text"].strip() for section in sections):
+        if getattr(limits, "ocr_enabled", False) and format == "pdf":
+            raise ExtractionError(
+                "No readable text found; upload a clearer scan or verify OCR language/DPI"
+            )
         raise ExtractionError(
             "No readable text found. Scanned PDFs require OCR, which is not enabled"
         )
@@ -103,8 +123,20 @@ if __name__ == "__main__":
     # Only parser limits travel over stdin. No credentials or document text in logs.
     limits = SimpleNamespace(**json.loads(sys.stdin.read()))
     try:
+        if getattr(limits, "ocr_enabled", False) and sys.argv[2] == "pdf":
+            apply_memory_limit(limits.ocr_memory_limit_mb)
         result = extract(Path(sys.argv[1]), sys.argv[2], limits)
         sys.stdout.write(json.dumps({"result": result}, ensure_ascii=True))
-    except (ExtractionError, InvalidDocument) as exc:
+    except (ExtractionError, InvalidDocument, OCRError, ResourceLimitError) as exc:
         sys.stdout.write(json.dumps({"error": str(exc)}))
+        raise SystemExit(2)
+    except MemoryError:
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "error": "OCR parser memory limit reached; lower DPI or increase "
+                    "OCR_MEMORY_LIMIT_MB"
+                }
+            )
+        )
         raise SystemExit(2)

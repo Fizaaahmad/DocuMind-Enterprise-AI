@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -22,6 +23,12 @@ from app.documents.storage import Storage, get_storage
 from app.models import Document, DocumentChunk, DocumentJob, DocumentSection
 
 logger = logging.getLogger(__name__)
+
+
+def processing_timeout(settings: Settings, format: str) -> int:
+    return settings.processing_timeout_seconds + (
+        settings.ocr_document_timeout_seconds if settings.ocr_enabled and format == "pdf" else 0
+    )
 
 
 @dataclass(frozen=True)
@@ -76,7 +83,9 @@ def claim_job(engine: Engine, settings: Settings) -> Claim | None:
             return None
         token = uuid.uuid4()
         job.state, job.lease_token = "running", token
-        job.lease_until = now() + timedelta(seconds=settings.processing_timeout_seconds + 30)
+        job.lease_until = now() + timedelta(
+            seconds=processing_timeout(settings, document.format) + 30
+        )
         job.attempts += 1
         if job.kind == "process":
             document.status, document.error = "processing", None
@@ -135,6 +144,17 @@ def extract_in_process(storage: Storage, claim: Claim, settings: Settings) -> di
             "extraction_max_characters",
             "extraction_max_pages",
             "docx_max_uncompressed_bytes",
+            "ocr_enabled",
+            "tesseract_cmd",
+            "ocr_tessdata_dir",
+            "ocr_language",
+            "ocr_dpi",
+            "ocr_min_text_characters",
+            "ocr_max_pages",
+            "ocr_max_pixels",
+            "ocr_page_timeout_seconds",
+            "ocr_document_timeout_seconds",
+            "ocr_memory_limit_mb",
         )
     }
     # Native parsers consume a path supplied by the authorized storage adapter.
@@ -148,10 +168,11 @@ def extract_in_process(storage: Storage, claim: Claim, settings: Settings) -> di
             encoding="utf-8",
             cwd=BACKEND_ROOT,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            start_new_session=os.name != "nt",
         )
         try:
             stdout, _ = process.communicate(
-                json.dumps(limits), timeout=settings.processing_timeout_seconds
+                json.dumps(limits, default=str), timeout=processing_timeout(settings, claim.format)
             )
         except (subprocess.TimeoutExpired, KeyboardInterrupt):
             # Windows venv launchers have a child interpreter: terminate the whole owned tree.
@@ -160,10 +181,17 @@ def extract_in_process(storage: Storage, claim: Claim, settings: Settings) -> di
                     ["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True
                 )
             else:
-                process.kill()
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass  # The process group exited while cancellation was being handled.
             process.communicate()
             raise
     if process.returncode not in (0, 2):
+        if settings.ocr_enabled and claim.format == "pdf":
+            raise ValueError(
+                "PDF/OCR parser stopped unexpectedly; lower DPI or check OCR_MEMORY_LIMIT_MB"
+            )
         raise ValueError("Document parser stopped unexpectedly; retry or replace the file")
     payload = json.loads(stdout)
     if "error" in payload:
