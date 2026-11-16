@@ -70,6 +70,8 @@ def exercise(secret: str):
         assert guard.status_code == 307 and guard.headers["location"] == "/login"
         guard = alice.get("/intelligence")
         assert guard.status_code == 307 and guard.headers["location"] == "/login"
+        guard = alice.get("/operations")
+        assert guard.status_code == 307 and guard.headers["location"] == "/login"
         for client, name in [(alice, "Alice"), (bob, "Bob")]:
             response = mutate(
                 client,
@@ -332,7 +334,55 @@ def structured(alice, bob, org, document_id):
     print(
         "HTTP smoke: structured extraction, comparisons, reviews, mock labeling and exports passed."
     )
+    operations(alice, bob, org, run_id)
     return run_id
+
+
+def operations(alice, bob, org, run_id):
+    assert alice.get("/operations").status_code == 200
+    base = f"/organizations/{org}/operations"
+    stats = alice.get("/api/backend" + base + "/summary").json()
+    rows = alice.get("/api/backend" + base + "/items").json()
+    assert rows["total"] == stats["totals"]["records"]
+    bob_id = bob.get("/api/backend/auth/me").json()["id"]
+    obligation = next(item for item in rows["items"] if item["kind"] == "obligation")
+    path = base + f"/items/{obligation['id']}/assignment"
+    assignment = {"version": obligation["version"], "assignee_id": bob_id, "due_date": "2026-11-25"}
+    assert mutate(alice, path, assignment, method="PATCH").status_code == 200
+    assert mutate(alice, path, assignment, method="PATCH").status_code == 409
+    assigned = bob.get("/api/backend" + base + f"/items?assignee_id={bob_id}").json()["items"][0]
+    assert assigned["assignment_due_date"] == "2026-11-25"
+    assert assigned["contract_deadline"] == "2026-12-01"
+    assert assigned["can_review"] and not assigned["can_assign"]
+    review_path = f"/organizations/{org}/structured/runs/{run_id}/items/{obligation['id']}/review"
+    assert (
+        mutate(
+            bob,
+            review_path,
+            {
+                "version": assigned["version"],
+                "action": "obligation",
+                "obligation_status": "completed",
+                "reason": "Delivery complete",
+            },
+        ).status_code
+        == 200
+    )
+    for format in ["csv", "json"]:
+        result = alice.get("/api/backend" + base + f"/export?format={format}")
+        assert result.status_code == 200 and "attachment" in result.headers["content-disposition"]
+    assert (
+        mutate(alice, f"/organizations/{org}/members/{bob_id}", method="DELETE").status_code == 204
+    )
+    activity = alice.get("/api/backend" + base + "/activity").json()["items"]
+    assert any(
+        event["actor_id"] == bob_id and event["action"] == "obligation" for event in activity
+    )
+    assert any(event["action"] == "member_unassigned" for event in activity)
+    assert bob.get("/api/backend" + base + "/items").status_code == 404
+    print(
+        "HTTP smoke: operations totals, assignments, delegated actions and audit identity passed."
+    )
 
 
 def main() -> int:

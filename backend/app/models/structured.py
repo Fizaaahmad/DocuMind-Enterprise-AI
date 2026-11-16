@@ -1,9 +1,10 @@
 """Immutable source revisions, versioned definitions, and append-only review history."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
+    Date,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -114,6 +115,13 @@ class AnalysisItem(Base):
             ondelete="CASCADE",
         ),
         Index("ix_analysis_items_run", "organization_id", "run_id"),
+        Index("ix_analysis_items_work", "organization_id", "kind", "review_status"),
+        Index(
+            "ix_analysis_items_assignment",
+            "organization_id",
+            "assignee_membership_id",
+            "assignment_due_date",
+        ),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     run_id: Mapped[uuid.UUID] = mapped_column()
@@ -127,6 +135,10 @@ class AnalysisItem(Base):
     review_status: Mapped[str] = mapped_column(String(20), default="pending")
     obligation_status: Mapped[str] = mapped_column(String(20), default="open")
     version: Mapped[int] = mapped_column(default=1)
+    assignee_membership_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("memberships.id", ondelete="SET NULL")
+    )
+    assignment_due_date: Mapped[date | None] = mapped_column(Date)
 
 
 class ReviewEvent(Base):

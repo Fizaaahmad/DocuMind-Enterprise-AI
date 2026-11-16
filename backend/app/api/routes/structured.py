@@ -19,6 +19,8 @@ from app.models import (
     SourceRevision,
     User,
 )
+from app.operations.permissions import manages, may_review
+from app.operations.queries import portfolio
 from app.services.organizations import membership
 from app.structured.engine import normalize
 from app.structured.schemas import ReviewInput, RunInput, TemplateInput
@@ -240,9 +242,21 @@ def result(
         .order_by(ReviewEvent.created_at, ReviewEvent.id)
     ).all()
     member = membership(db, organization_id, user)
+    from fastapi.encoders import jsonable_encoder
+
+    rows = portfolio(organization_id)
+    active = bool(db.scalar(select(rows.c.is_current).where(rows.c.run_id == run_id).limit(1)))
+    manager = manages(member, user, documents)
+    encoded_items = [
+        {
+            **jsonable_encoder(item),
+            "can_review": manager or (active and item.assignee_membership_id == member.id),
+        }
+        for item in items
+    ]
     return {
         "run": run,
-        "items": items,
+        "items": encoded_items,
         "reviews": events,
         "superseded": any(not r.current for r in revisions)
         or any(d.status != "completed" for d in documents),
@@ -302,8 +316,9 @@ def review(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
-    membership(db, organization_id, user)
-    run, _, _ = run_for(db, organization_id, run_id, manage=user)
+    member = membership(db, organization_id, user, lock=True)
+    run, _, documents = run_for(db, organization_id, run_id)
+    live_revisions(db, run, lock=True)
     item = db.scalar(
         select(AnalysisItem)
         .where(AnalysisItem.id == item_id, AnalysisItem.run_id == run_id)
@@ -311,6 +326,10 @@ def review(
     )
     if not item:
         raise HTTPException(404, "Result not found")
+    if not may_review(db, organization_id, member, user, documents, item):
+        raise HTTPException(
+            403, "Only source managers or the active assigned member may review this result"
+        )
     if item.version != body.version:
         raise HTTPException(409, "Result changed; reload before reviewing")
     before = {

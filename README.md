@@ -1,5 +1,165 @@
 # DocuMind
 
+## Phase 6: enterprise operations and portfolio intelligence
+
+Open **http://localhost:3000/operations** or choose **Enterprise overview** from
+the dashboard. The workspace provides organization-wide inventory, filtered
+record totals, centralized obligations, a review queue, a risk register,
+assignments, workflow activity, and CSV/JSON reports. Existing organization
+management and Phase 5 analysis screens remain available.
+
+### Windows setup
+
+No new dependency, service, API key, environment variable, or background job is
+required. Stop the old API and worker with Ctrl+C before applying the additive
+assignment migration, then use separate PowerShell terminals:
+
+```powershell
+# Terminal 1: PostgreSQL, migration, and API
+Set-Location 'C:\Users\fizaa\Projects\Side Projects\DocuMind'
+docker compose up -d db
+Set-Location backend
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m alembic check
+.\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --reload
+```
+
+```powershell
+# Terminal 2: existing document/indexing/analysis worker
+Set-Location 'C:\Users\fizaa\Projects\Side Projects\DocuMind\backend'
+.\.venv\Scripts\python.exe -m app.documents.worker
+```
+
+```powershell
+# Terminal 3: frontend
+Set-Location 'C:\Users\fizaa\Projects\Side Projects\DocuMind\frontend'
+npm run dev
+```
+
+### Counting and deadline semantics
+
+Portfolio totals count **analysis records**, not deduplicated real-world risks
+or commitments. Current records come from the latest successful extraction run
+for each source revision, template family, and engine. Template families follow
+the immutable `parent_id` version chain. Repeated analyses and revised versions
+of the same template family replace earlier runs in current totals. Independent
+templates remain separate families: overlapping findings/obligations can therefore
+count separately, and the UI/reports explicitly disclose this. Comparison changes
+remain in Phase 5 and are not counted as extraction risk or obligation records.
+
+Default filters select deterministic records on current source revisions of live,
+completed documents. Mock records are excluded unless explicitly selected and
+are labeled **DEVELOPMENT MOCK**. Superseded scope includes older successful runs
+and older/reprocessing source revisions; the two reasons are flagged separately.
+Assignments and approvals are not automatically copied onto replacement results.
+Deleted-source records are excluded from every portfolio scope/export, while
+unavailable analysis counts and redacted activity metadata remain visible.
+
+Inventory counts are labeled **organization-wide**, include historical/mock
+analysis runs, and are separate from filtered item totals. Physically deleted
+documents are not retained as a document inventory count. Dashboard drilldowns,
+lists, and exports share SQL selection/filtering and metric predicates. Counts
+can change between requests when another user updates the organization.
+
+Contract deadlines come from Phase 5's validated ISO obligation dates. Assignment
+due dates are separate workflow metadata and never change contract text or dates.
+Open obligations use the existing `open`/`in_progress` lifecycle; unreviewed or
+rejected candidates keep that lifecycle until explicitly completed/dismissed.
+Review work completes on approval/rejection; a corrected result still awaits
+approval. Completion time derives from existing audit events. Unknown deadlines
+are not overdue. Deadline classification uses a UTC date: overdue means strictly
+before the reference date, upcoming means that date through seven days ahead.
+Changing the reference date changes classification of **current stored state**;
+it does not reconstruct a historical point-in-time portfolio.
+
+### Manual verification
+
+1. Complete a deterministic Phase 5 extraction with fields, risk findings, and
+   an obligation. Open Operations and inspect overview counts and matching rows.
+2. Repeat the same analysis. Current counts must stay stable; the earlier results
+   move to superseded scope. Create a child template version and repeat: the family
+   still contributes only its latest results. An independent copied template may
+   add overlapping records and must not be interpreted as unique business items.
+3. Use Obligations, Review queue, and Risk register tabs. Test responsible party,
+   document, severity, review/lifecycle status, assignment, deadline range, and
+   overdue/upcoming/unknown filters. Filename search finds document options across
+   the organization (up to 50 matching choices at once). Tables are paginated.
+4. Click a nonzero overview metric to drill into its records without dropping
+   existing filters. Reset filters to leave the drilldown. Export CSV/JSON and
+   compare row totals and filters with the displayed list, across all pages.
+5. Inspect a record as its uploader or Admin. Assign it to an organization member
+   with a workflow due date different from its contract deadline. Verify both
+   dates remain distinct. Assigning an external/nonmember user is rejected.
+6. Log in as the assignee. Filter by your name, inspect evidence, and use the
+   existing approve/reject/correct or obligation status actions. You may act only
+   on assigned current items (unless independently uploader/Admin). Assignment
+   grants no document deletion, template administration, or reassignment rights.
+7. Open the same item in two tabs and submit an older version after another write.
+   The stale update returns 409 and refreshes the record rather than overwriting.
+8. Complete a review/obligation. Check review queue membership, completion time,
+   and activity. Review actions remain the original Phase 5 `ReviewEvent` records;
+   assignment/date changes add one event each. There is no duplicate activity store.
+9. Remove an assignee's membership as Admin. Assignments and workflow due dates
+   clear atomically; prior review actors and activity identities remain. The former
+   member loses access. An assigned task on an older result does not become a
+   delegation to the replacement result after reprocessing/reanalysis.
+10. Delete a source. No portfolio list/export may expose its values or evidence.
+    Activity retains actor/action/time/version metadata with redacted content and
+    an unavailable-source label. Check another organization to verify isolation.
+
+### Implementation and limits
+
+`0006_operations` adds two nullable `analysis_items` columns (membership assignee
+and workflow due date), a membership foreign key, and scope indexes. Existing
+results, revisions, and review values are preserved. `app/operations/queries.py`
+contains the shared portfolio projection, lineage ranking, and filters;
+`assignments.py` records assignment changes; existing Phase 5 actions remain the
+single review/status implementation. Membership changes and assignment/review
+writes use organization locking, item locking, and the existing version counter.
+Only active members may be assigned; membership removal also clears completed
+assignment pointers, with the original identities retained in audit history.
+
+Organization-scoped APIs under `/api/v1/organizations/{id}/operations`:
+`GET summary`, `GET items`, `GET members`, `GET activity`, `GET export`, and
+`PATCH items/{item_id}/assignment`. All reuse live authentication and membership;
+mutations retain CSRF protection. The existing server guard and proxy allowlist
+protect `/operations`. Original-result links open the selected organization,
+analysis, and item in Phase 5. Shared review controls and evidence validation are
+reused. Activity is explicitly organization-wide and does not inherit item filters.
+
+Lists use 20 records per page (API maximum 100); activity uses 30. Reports include
+all matching rows up to 5000; exceeding that limit returns a clear error requiring
+narrower filters, without silently truncating. CSV uses the existing formula-safe
+formatter. JSON includes original/corrected values, evidence, provenance, assignment,
+and scope. Expensive materialized dashboards, cross-template semantic deduplication,
+automatic task carry-forward, custom workflow states, holiday calendars, notifications,
+and scheduled reports are deferred. No GPT or paid provider integration is added.
+
+```powershell
+# From backend/: isolated database regressions and migration checks
+.\.venv\Scripts\python.exe scripts/test_postgres.py
+.\.venv\Scripts\python.exe -m ruff check .
+# Optional full regression with cached real local embeddings
+$env:EMBEDDING_INTEGRATION = '1'
+.\.venv\Scripts\python.exe scripts/test_postgres.py
+Remove-Item Env:EMBEDDING_INTEGRATION
+# Build frontend first, then run HTTP smoke tests on free ports 3001/8001
+$env:SMOKE_INTELLIGENCE = '1'
+.\.venv\Scripts\python.exe scripts/smoke_fullstack.py
+Remove-Item Env:SMOKE_INTELLIGENCE
+# From frontend/
+npm test
+npm run lint
+npm run typecheck
+npm run build
+```
+
+Tests cover version/family counting, metric/list/export consistency, deadlines,
+cross-organization assignment rejection, delegated actions, stale updates,
+membership removal, audit identity, mock exclusion, source supersession/deletion,
+and operations UI permissions/filters/evidence. Smoke tests use disposable servers,
+storage, and databases and leave development data intact.
+
 ## Phase 5: structured document intelligence
 
 Open **http://localhost:3000/intelligence** or select **Structured intelligence**

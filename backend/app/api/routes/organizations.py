@@ -113,6 +113,9 @@ def remove_member(
     membership(db, organization_id, user, admin=True, lock=True)
     target = target_member(db, organization_id, user_id)
     preserve_admin(db, target)
+    from app.operations.assignments import clear_member_assignments
+
+    clear_member_assignments(db, target, user)
     db.delete(target)
     db.commit()
     return Response(status_code=204)

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, apiResponse } from "../lib/api";
 import type { Organization } from "../lib/types";
 
@@ -32,7 +32,7 @@ type Evidence = {
   end: number;
   quote: string;
 };
-type Item = {
+export type Item = {
   id: string;
   run_id: string;
   kind: string;
@@ -44,6 +44,7 @@ type Item = {
   review_status: string;
   obligation_status: string;
   version: number;
+  can_review?: boolean;
 };
 type Review = {
   id: string;
@@ -111,7 +112,15 @@ const example = {
 };
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 
-export function StructuredWorkspace() {
+export function StructuredWorkspace({
+  initialOrganization = "",
+  initialRun = "",
+  initialItem = "",
+}: {
+  initialOrganization?: string;
+  initialRun?: string;
+  initialItem?: string;
+} = {}) {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selected, setSelected] = useState("");
   const [error, setError] = useState("");
@@ -121,7 +130,11 @@ export function StructuredWorkspace() {
       .then((items) => {
         if (active) {
           setOrganizations(items);
-          setSelected(items[0]?.id ?? "");
+          setSelected(
+            items.find((item) => item.id === initialOrganization)?.id ??
+              items[0]?.id ??
+              "",
+          );
         }
       })
       .catch((e) => {
@@ -130,7 +143,7 @@ export function StructuredWorkspace() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [initialOrganization]);
   return (
     <main className="mx-auto max-w-7xl p-4 sm:p-8">
       <header className="mb-7 flex flex-wrap justify-between gap-4">
@@ -177,6 +190,16 @@ export function StructuredWorkspace() {
         <Workspace
           key={selected}
           organization={selected}
+          initialRun={
+            !initialOrganization || selected === initialOrganization
+              ? initialRun
+              : ""
+          }
+          initialItem={
+            !initialOrganization || selected === initialOrganization
+              ? initialItem
+              : ""
+          }
           admin={organizations.find((o) => o.id === selected)?.role === "admin"}
         />
       ) : (
@@ -189,9 +212,13 @@ export function StructuredWorkspace() {
 function Workspace({
   organization,
   admin,
+  initialRun,
+  initialItem,
 }: {
   organization: string;
   admin: boolean;
+  initialRun: string;
+  initialItem: string;
 }) {
   const base = `/organizations/${organization}/structured`;
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -204,7 +231,8 @@ function Workspace({
   const [template, setTemplate] = useState("");
   const [mode, setMode] = useState("extract");
   const [engine, setEngine] = useState("deterministic");
-  const [selected, setSelected] = useState("");
+  const [selected, setSelected] = useState(initialRun);
+  const focused = useRef(false);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [tab, setTab] = useState("field");
   const [error, setError] = useState("");
@@ -256,7 +284,21 @@ function Workspace({
     const refresh = async () => {
       try {
         const next = await api<Detail>(`${base}/runs/${selected}`);
-        if (active) setDetail(next);
+        if (active) {
+          setDetail(next);
+          if (initialItem && selected === initialRun && !focused.current) {
+            const item = next.items.find((row) => row.id === initialItem);
+            if (item) {
+              setTab(item.kind);
+              focused.current = true;
+              requestAnimationFrame(() =>
+                document
+                  .getElementById(`result-${initialItem}`)
+                  ?.scrollIntoView?.(),
+              );
+            }
+          }
+        }
       } catch (e) {
         if (active) {
           setDetail(null);
@@ -273,7 +315,7 @@ function Workspace({
       active = false;
       clearInterval(timer);
     };
-  }, [base, selected]);
+  }, [base, selected, initialItem, initialRun]);
   async function action(work: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -646,7 +688,11 @@ function Workspace({
             {detail.items
               .filter((i) => i.kind === tab)
               .map((item) => (
-                <section className="panel p-5" key={item.id}>
+                <section
+                  className={`panel p-5 ${initialItem === item.id ? "ring-2 ring-indigo-300" : ""}`}
+                  id={`result-${item.id}`}
+                  key={item.id}
+                >
                   <div className="flex flex-wrap justify-between gap-2">
                     <h3 className="font-semibold">{item.name}</h3>
                     <span className="text-xs text-slate-500">
@@ -723,7 +769,7 @@ function Workspace({
                       Tracking status: {item.obligation_status}
                     </p>
                   )}
-                  {detail.can_manage && (
+                  {(detail.can_manage || item.can_review) && (
                     <ReviewPanel
                       item={item}
                       busy={busy}
@@ -852,7 +898,7 @@ function RevisionPicker({
   );
 }
 
-function ReviewPanel({
+export function ReviewPanel({
   item,
   busy,
   onReview,
@@ -1022,7 +1068,8 @@ function CoverageBrowser({
           <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap text-xs leading-6">
             {s.text}
           </pre>
-          {detail.can_manage && (
+          {(detail.can_manage ||
+            detail.items.some((item) => item.can_review)) && (
             <button
               className="mt-2 text-xs text-indigo-700"
               onMouseDown={(e) => e.preventDefault()}

@@ -13,12 +13,15 @@ export async function proxyRequest(
     /^organizations\/[0-9a-f-]{36}\/intelligence\/(?:status|search|documents\/[0-9a-f-]{36}\/index|conversations(?:\/[0-9a-f-]{36}(?:\/messages)?)?)$/i;
   const structured =
     /^organizations\/[0-9a-f-]{36}\/structured\/(?:templates|obligations|documents\/[0-9a-f-]{36}\/revisions|runs(?:\/[0-9a-f-]{36}(?:\/(?:sections|retry|export|items\/[0-9a-f-]{36}\/review))?)?)$/i;
+  const operations =
+    /^organizations\/[0-9a-f-]{36}\/operations\/(?:summary|items|members|activity|export|items\/[0-9a-f-]{36}\/assignment)$/i;
   if (
     !auth.test(path) &&
     !orgs.test(path) &&
     !documents.test(path) &&
     !intelligence.test(path) &&
-    !structured.test(path)
+    !structured.test(path) &&
+    !operations.test(path)
   )
     return new Response(null, { status: 404 });
   const headers = new Headers();
