@@ -68,6 +68,8 @@ def exercise(secret: str):
         assert guard.status_code == 307 and guard.headers["location"] == "/login"
         guard = alice.get("/assistant")
         assert guard.status_code == 307 and guard.headers["location"] == "/login"
+        guard = alice.get("/intelligence")
+        assert guard.status_code == 307 and guard.headers["location"] == "/login"
         for client, name in [(alice, "Alice"), (bob, "Bob")]:
             response = mutate(
                 client,
@@ -152,7 +154,10 @@ def exercise(secret: str):
 def documents(alice: httpx.Client, bob: httpx.Client, org_a: str, org_b: str):
     assert alice.get("/documents").status_code == 200
     csrf = alice.get("/api/backend/auth/csrf").json()["csrf_token"]
-    raw = b"DocuMind full-stack source text. " * 1500  # Exceeds the old JSON proxy limit.
+    raw = (
+        b"Party: Acme Ltd\nFee: USD 15000\nAcme shall deliver by 2026-12-01.\n"
+        + (b"DocuMind full-stack source text. " * 100 + b"\n") * 15
+    )
     response = alice.post(
         f"/api/backend/organizations/{org_a}/documents",
         files={"file": ("smoke.txt", raw, "text/plain")},
@@ -219,18 +224,23 @@ def documents(alice: httpx.Client, bob: httpx.Client, org_a: str, org_b: str):
         assert bob.get("/api/backend" + chat_path).status_code == 404
         foreign = f"/organizations/{org_b}/intelligence/search"
         assert mutate(bob, foreign, data).status_code == 404
+    structured_run = structured(alice, bob, org_a, document_id)
     assert (
         mutate(
             alice, f"/organizations/{org_a}/documents/{document_id}", method="DELETE"
         ).status_code
         == 202
     )
+    assert (
+        alice.get(
+            f"/api/backend/organizations/{org_a}/structured/runs/{structured_run}/export"
+        ).status_code
+        == 410
+    )
     if chat_path:
         history = alice.get("/api/backend" + chat_path).json()
         assert history[0]["citations"] == []
-        print(
-            "HTTP smoke: real embeddings, scoped search, mock RAG and private history passed."
-        )
+        print("HTTP smoke: real embeddings, scoped search, mock RAG and private history passed.")
     assert alice.get(base).status_code == 404
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
@@ -245,6 +255,84 @@ def documents(alice: httpx.Client, bob: httpx.Client, org_a: str, org_b: str):
     print(
         "HTTP smoke: uploads, processing, sources, search, download, isolation and deletion passed."
     )
+
+
+def structured(alice, bob, org, document_id):
+    assert alice.get("/intelligence").status_code == 200
+    base = f"/organizations/{org}/structured"
+    template = mutate(
+        alice,
+        base + "/templates",
+        {
+            "name": "Smoke contract",
+            "fields": [
+                {"name": "party", "label": "Party", "type": "text", "required": True},
+                {"name": "fee", "label": "Fee", "type": "money"},
+            ],
+            "rules": [
+                {"name": "Termination not detected", "type": "missing", "term": "termination"}
+            ],
+            "obligations": True,
+        },
+    )
+    assert template.status_code == 201
+    template_id = template.json()["id"]
+
+    def finish(payload):
+        response = mutate(alice, base + "/runs", payload)
+        assert response.status_code == 202, "Analysis queue request failed"
+        run_id = response.json()["id"]
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            data = alice.get(f"/api/backend{base}/runs/{run_id}").json()
+            if data["run"]["state"] in {"completed", "failed"}:
+                break
+            time.sleep(0.3)
+        assert data["run"]["state"] == "completed", "Structured worker did not publish results"
+        return run_id, data
+
+    run_id, data = finish({"document_id": document_id, "template_id": template_id})
+    party = next(i for i in data["items"] if i["name"] == "party")
+    assert party["original"]["value"] == "Acme Ltd" and party["evidence"]
+    path = base + f"/runs/{run_id}/items/{party['id']}/review"
+    review = {"version": 1, "action": "approve", "reason": "Verified against passage"}
+    assert mutate(bob, path, review).status_code == 403
+    assert mutate(alice, path, review).status_code == 200
+    assert mutate(alice, path, review).status_code == 409
+    for format in ["json", "csv"]:
+        exported = alice.get(f"/api/backend{base}/runs/{run_id}/export?format={format}")
+        assert (
+            exported.status_code == 200 and "attachment" in exported.headers["content-disposition"]
+        )
+    if os.environ.get("SMOKE_INTELLIGENCE") == "1":
+        _, mock = finish({"document_id": document_id, "template_id": template_id, "engine": "mock"})
+        assert mock["run"]["engine"] == "mock"
+    csrf = alice.get("/api/backend/auth/csrf").json()["csrf_token"]
+    response = alice.post(
+        f"/api/backend/organizations/{org}/documents",
+        files={"file": ("revision-b.txt", b"Party: Acme Ltd\nFee: USD 16000\n", "text/plain")},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 202
+    other = response.json()["id"]
+    deadline = time.monotonic() + 40
+    while time.monotonic() < deadline:
+        status = alice.get(f"/api/backend/organizations/{org}/documents/{other}").json()["status"]
+        if status in {"completed", "failed"}:
+            break
+        time.sleep(0.3)
+    assert status == "completed"
+    _, comparison = finish(
+        {"document_id": document_id, "other_document_id": other, "mode": "compare"}
+    )
+    assert any(i["name"] == "Modified" for i in comparison["items"])
+    assert (
+        mutate(alice, f"/organizations/{org}/documents/{other}", method="DELETE").status_code == 202
+    )
+    print(
+        "HTTP smoke: structured extraction, comparisons, reviews, mock labeling and exports passed."
+    )
+    return run_id
 
 
 def main() -> int:

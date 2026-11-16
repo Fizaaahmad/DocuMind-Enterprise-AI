@@ -43,6 +43,22 @@ class SupportedClaim:
 
 
 @dataclass(frozen=True)
+class StructuredCandidate:
+    field: str
+    value: str
+    source_id: str
+    quote: str
+
+
+class StructuredProvider(Protocol):
+    """Optional capability; chat providers are not required to implement it."""
+
+    def extract_fields(
+        self, fields: list[dict], evidence: list[Evidence], settings: GenerationSettings
+    ) -> list[StructuredCandidate]: ...
+
+
+@dataclass(frozen=True)
 class ProviderResult:
     claims: list[SupportedClaim]
 
@@ -63,6 +79,23 @@ class MockProvider:
     """Deterministic passage selection, with no network calls or invented prose."""
 
     is_mock = True
+
+    def extract_fields(self, fields, evidence, settings):
+        import re
+
+        result = []
+        for definition in fields:
+            pattern = re.compile(
+                r"^\s*" + re.escape(definition["label"]) + r"\s*:\s*(.+?)\s*$", re.I
+            )
+            for source in evidence:
+                for line in source.text.splitlines():
+                    match = pattern.match(line)
+                    if match:
+                        result.append(
+                            StructuredCandidate(definition["name"], match[1], source.id, line)
+                        )
+        return result
 
     def generate(self, question, history, evidence, settings):
         budget = settings.max_output_tokens * 2  # conservative bounded extractive output

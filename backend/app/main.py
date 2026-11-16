@@ -11,6 +11,7 @@ from app.api.routes.documents import router as documents_router
 from app.api.routes.health import router as health_router
 from app.api.routes.intelligence import router as intelligence_router
 from app.api.routes.organizations import router as organizations_router
+from app.api.routes.structured import router as structured_router
 from app.core.config import Settings, get_settings
 from app.core.security import verify_csrf
 from app.db.session import build_engine
@@ -65,4 +66,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(organizations_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
     app.include_router(intelligence_router, prefix="/api/v1")
+    app.include_router(structured_router, prefix="/api/v1")
     return app

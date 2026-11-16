@@ -1,5 +1,193 @@
 # DocuMind
 
+## Phase 5: structured document intelligence
+
+Open **http://localhost:3000/intelligence** or select **Structured intelligence**
+on the dashboard. This phase works without an LLM, API key, embeddings, or model
+downloads. It provides literal field extraction, typed validation, text comparison,
+configurable rule findings, obligation candidates, review history, and CSV/JSON
+exports. It does **not** provide semantic contract interpretation or legal advice.
+
+### Windows startup
+
+No additional package or service is needed beyond the existing installation.
+Stop the old API and worker with Ctrl+C before applying the additive migration:
+
+```powershell
+Set-Location 'C:\Users\fizaa\Projects\Side Projects\DocuMind'
+docker compose up -d db
+Set-Location backend
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m alembic check
+.\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --reload
+```
+
+Run the **same existing worker command** in another PowerShell terminal:
+
+```powershell
+Set-Location 'C:\Users\fizaa\Projects\Side Projects\DocuMind\backend'
+.\.venv\Scripts\python.exe -m app.documents.worker
+```
+
+Run the frontend in a third terminal:
+
+```powershell
+Set-Location 'C:\Users\fizaa\Projects\Side Projects\DocuMind\frontend'
+npm run dev
+```
+
+Deterministic extraction needs no environment changes. Optional limits in
+`backend/.env` (restart API/worker after changes):
+
+```dotenv
+ANALYSIS_MAX_CHARACTERS=500000
+ANALYSIS_TIMEOUT_SECONDS=120
+ANALYSIS_MAX_ITEMS=500
+```
+
+The development-only structured mock requires `LLM_PROVIDER=mock` and
+`ENVIRONMENT=development`. Choose **Development mock simulation** in the workspace.
+It exercises the optional structured-provider capability without API calls and
+is labeled in history/results/exports. Existing Phase 4 provider settings remain
+unchanged; deterministic analysis also works with `LLM_PROVIDER=disabled`.
+
+### Manual acceptance workflow
+
+Create two sample documents using PowerShell:
+
+```powershell
+$contractA = Join-Path $env:TEMP 'documind-contract-a.txt'
+$contractB = Join-Path $env:TEMP 'documind-contract-b.txt'
+@'
+Party: Acme Ltd
+Effective Date: 2026-11-01
+Fee: USD 15000
+Acme shall deliver reports by 2026-12-01.
+Supplier accepts unlimited liability.
+'@ | Set-Content -LiteralPath $contractA -Encoding utf8
+(Get-Content -LiteralPath $contractA -Raw).Replace('USD 15000', 'USD 18000') + "`nTermination: thirty days" |
+    Set-Content -LiteralPath $contractB -Encoding utf8
+Write-Output $contractA
+Write-Output $contractB
+```
+
+1. Upload both files through **Documents** and wait for extraction to complete.
+   PDF, OCR PDF, and DOCX use the same already-extracted source pipeline.
+2. As an organization Admin, open **Structured intelligence → Configure templates
+   & rules**. Save the supplied contract example. Template editing uses validated
+   JSON; copying an existing version and saving creates a new immutable definition.
+3. Select document A, the template, and the deterministic engine. Queue analysis.
+   Expect `party`, `effective_date`, and `fee` values; high-fee and liability review
+   candidates; a termination-term-not-detected finding; and a delivery obligation.
+   Open references and compare their exact quotations and offsets with the source.
+4. In each category, approve/reject a candidate with a reason. Correct a literal
+   field using one of its passages, then inspect original/corrected values and
+   review history. A correction without supporting text is a **manual assertion**
+   and cannot be approved as verified. Missing/invalid fields also cannot be approved
+   until corrected with valid evidence. Open the revision coverage browser, select
+   source text and click **Use selected text ... as correction evidence**. Then
+   choose that coverage passage in the correction form. This also supports fixing
+   previously missing fields. The API validates the revision and exact offsets.
+5. Under **Obligations**, update status to in-progress/completed/dismissed. Responsible
+   parties are literal prefixes before obligation keywords, and deadlines are
+   explicit ISO dates after “by” or “on”; verify both manually.
+6. Select **Compare revisions**, choose A and B, and queue a comparison. Check
+   side-by-side fee changes and the added termination line with correct source sides.
+   Different retained extraction revisions of one document may also be selected.
+7. Export JSON and CSV. JSON includes coverage, source metadata, review history,
+   and original/corrected results. The Obligations CSV button filters to obligations.
+   CSV cells are escaped against spreadsheet formula execution.
+8. Open the same result in two browser tabs, save a review in one, then submit an
+   older version from the other: the API returns a conflict rather than overwriting.
+   Polling normally refreshes the other tab automatically.
+9. Retry an eligible failed document through the existing document flow. Successful
+   reprocessing creates a new source revision; old reviewed analyses are labeled
+   historical. New analysis does not update previous items or reviews.
+10. Delete a source document. Its analyses become unavailable immediately; results,
+    exports, and evidence endpoints return 410. Retained source text, values,
+    corrections, quotes, reviewer notes, and comparison results are purged/redacted.
+    Audit IDs, actions, actor IDs, versions, and timestamps remain. The worker still
+    handles physical file cleanup. Repeated analyses referencing the other side of
+    a deleted comparison cannot reveal the deleted source.
+11. Test another organization and an ordinary Member account. Members can read
+    organization results/export but cannot analyze or review another uploader's
+    documents unless Admin. Both sources of a comparison require management rights.
+    Admins alone create template/rule versions. Cross-organization IDs return 404.
+12. Stop the worker, queue analysis, then restart it. Pending jobs survive; expired
+    leases are recovered with the existing retry budget. Analysis failures leave
+    document extraction/indexing unchanged and publish no partial results.
+
+### Architecture, rules, and limitations
+
+`0005_structured` adds six tables: `source_revisions`, `revision_sections`,
+`analysis_templates`, `analysis_runs`, `analysis_items`, and
+`analysis_review_events`. Source snapshots are made on successful extraction;
+existing completed documents are snapshotted lazily when selected. Revision IDs
+identify immutable text and OCR/page provenance; source file checksums are retained.
+Original Phase 3 sections/chunks and Phase 4 vectors continue serving existing APIs.
+
+`analysis_runs` doubles as the durable analysis queue. The existing worker handles
+one document job then one analysis job per loop, with separate fenced leases,
+retry scheduling, atomic publication, and source checks before publication. A
+bounded analysis can delay the next job on a single worker but never blocks upload
+requests. No Redis, Celery, agents, or workflow engine is introduced.
+
+Field strategies are deliberately explicit: a literal `Label: value` on one line,
+strict `YYYY-MM-DD` dates, finite decimal values, currency-coded money such as
+`USD 15000` or `USD 50,000.00` (commas must group exactly three digits), yes/no or
+true/false booleans, and semicolon lists. Descriptions do not execute instructions.
+Ambiguous repeated values remain review candidates. Configurable rules support
+literal case-insensitive `contains`, full-revision `missing`, numeric `threshold`
+(money/decimal), and repeated-value `inconsistent`. There is no arbitrary code or
+user-supplied regex execution. Limits include 40 fields/rules, 50 occurrences per
+field, and 100 positive passages per keyword rule; exceeding limits fails clearly.
+
+Missing values and missing-term rules have **coverage evidence**, not fabricated
+positive quotes. They identify the complete inspected revision and are labeled
+“not detected”, never proof of absence. Analysis is not based on top-k search.
+Comparison uses line alignment with whitespace normalization, preserves exact
+source passages, and caps input at 1500 nonempty lines per side and 10000 characters
+per line. Lexical significance flags are review hints, not semantic judgments.
+Layout changes, OCR errors, synonyms, implicit obligations, relative dates, and
+paraphrased clauses require human review or later real-provider evaluation.
+
+The optional `StructuredProvider` protocol is separate from the unchanged chat
+contract and reuses provider settings, evidence, and the registry. All suggestions
+must pass application-side source/value checks. The mock tests orchestration only;
+no genuine AI-generated structured analysis is currently enabled. New modules are
+under `app/structured/`; organization routes are under
+`/api/v1/organizations/{id}/structured`: templates, document revisions, runs,
+run sections/retries, item reviews, obligations, and exports. Source checks and
+permission checks apply to exports too. UI lists the latest 100 runs/templates,
+50 documents, and 100 revisions per document; this initial workspace tracks
+obligations per analysis. There is no notification/reminder service.
+
+### Automated verification
+
+```powershell
+# From backend/
+.\.venv\Scripts\python.exe scripts/test_postgres.py
+.\.venv\Scripts\python.exe -m ruff check .
+# Optional real local embeddings in the full regression suite (cached model required)
+$env:EMBEDDING_INTEGRATION = '1'
+.\.venv\Scripts\python.exe scripts/test_postgres.py
+Remove-Item Env:EMBEDDING_INTEGRATION
+# Production frontend must be built first; ports 3001/8001 must be free.
+$env:SMOKE_INTELLIGENCE = '1'
+.\.venv\Scripts\python.exe scripts/smoke_fullstack.py
+Remove-Item Env:SMOKE_INTELLIGENCE
+# From frontend/ in a separate terminal
+npm test
+npm run lint
+npm run typecheck
+npm run build
+```
+
+Database tests and HTTP smoke tests use disposable databases and storage; they do
+not delete development data. Tests cover typed normalization, extraction evidence,
+comparison, coverage rules, mock provenance, optimistic reviews, old-revision
+preservation, redaction, worker fencing/recovery, CSV safety, permissions, and UI.
+
 ## Phase 4: local semantic search and provider-neutral assistant
 
 Phase 4 adds Sentence Transformers CPU embeddings, pgvector cosine retrieval, a

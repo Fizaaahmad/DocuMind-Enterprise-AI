@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = Field(default=2, ge=0.1, le=60)
     worker_max_attempts: int = Field(default=3, ge=1, le=10)
     processing_max_chunks: int = Field(default=10000, ge=100, le=100000)
+    analysis_max_characters: int = Field(default=500000, ge=1000, le=2000000)
+    analysis_timeout_seconds: int = Field(default=120, ge=10, le=600)
+    analysis_max_items: int = Field(default=500, ge=10, le=2000)
     embeddings_enabled: bool = False
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_revision: str = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"

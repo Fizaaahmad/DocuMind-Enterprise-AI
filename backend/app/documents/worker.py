@@ -23,6 +23,8 @@ from app.documents.storage import Storage, get_storage
 from app.intelligence.embeddings import EmbeddingUnavailable, profile
 from app.intelligence.indexing import index_document
 from app.models import Document, DocumentChunk, DocumentJob, DocumentSection
+from app.structured.sources import snapshot
+from app.structured.worker import run_analysis_once
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +265,7 @@ def publish(engine: Engine, claim: Claim, result: dict, settings: Settings) -> b
             result["metadata"],
         )
         document.processing_completed_at = now()
+        snapshot(db, document)
         job.state, job.last_error = "completed", None
         document.index_status, document.index_error, document.index_profile = (
             "unindexed",
@@ -353,6 +356,8 @@ def main():
         while True:
             try:
                 handled = run_once(engine, settings)
+                if not args.once or not handled:
+                    handled = run_analysis_once(engine, settings) or handled
             except Exception:
                 logger.warning("Worker database unavailable; will retry")
                 handled = False

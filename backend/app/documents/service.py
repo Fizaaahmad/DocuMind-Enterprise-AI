@@ -11,6 +11,7 @@ from app.documents.storage import UploadTooLarge, get_storage
 from app.documents.validation import InvalidDocument, safe_filename, validate_file
 from app.models import ChunkEmbedding, Document, DocumentJob, User
 from app.services.organizations import membership
+from app.structured.sources import redact_document
 
 
 def find_document(db: Session, org_id: uuid.UUID, doc_id: uuid.UUID, lock=False) -> Document:
@@ -35,6 +36,7 @@ def can_manage(db: Session, org_id: uuid.UUID, user: User, document: Document):
 
 def queue_deletion(db: Session, document: Document):
     document.deleted_at = now()
+    redact_document(db, document)
     document.index_status = "unindexed"
     db.execute(
         delete(ChunkEmbedding).where(

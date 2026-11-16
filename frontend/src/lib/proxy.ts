@@ -11,11 +11,14 @@ export async function proxyRequest(
     /^organizations\/[0-9a-f-]{36}\/documents(?:\/(?:config|[0-9a-f-]{36}(?:\/(?:content|download|retry))?))?$/i;
   const intelligence =
     /^organizations\/[0-9a-f-]{36}\/intelligence\/(?:status|search|documents\/[0-9a-f-]{36}\/index|conversations(?:\/[0-9a-f-]{36}(?:\/messages)?)?)$/i;
+  const structured =
+    /^organizations\/[0-9a-f-]{36}\/structured\/(?:templates|obligations|documents\/[0-9a-f-]{36}\/revisions|runs(?:\/[0-9a-f-]{36}(?:\/(?:sections|retry|export|items\/[0-9a-f-]{36}\/review))?)?)$/i;
   if (
     !auth.test(path) &&
     !orgs.test(path) &&
     !documents.test(path) &&
-    !intelligence.test(path)
+    !intelligence.test(path) &&
+    !structured.test(path)
   )
     return new Response(null, { status: 404 });
   const headers = new Headers();
@@ -49,7 +52,7 @@ export async function proxyRequest(
     });
   };
   try {
-    let limit = 16384;
+    let limit = structured.test(path) ? 65536 : 16384;
     if (upload) {
       // Authorize the organization and discover the backend's authoritative limit
       // before forwarding a potentially large request body.
