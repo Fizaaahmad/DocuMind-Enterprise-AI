@@ -58,6 +58,7 @@ def clients(identity_db, tmp_path):
                 auth_secret=SecretStr("test-only-signing-key-" + "x" * 40),
                 cookie_secure=secure,
                 environment="production" if secure else "development",
+                allowed_hosts=["app.example.test", "localhost", "testserver"],
                 cors_origins=[origin],
                 storage_path=tmp_path / "documents",
             )

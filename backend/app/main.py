@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -5,6 +6,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.routes.auth import router as auth_router
 from app.api.routes.documents import router as documents_router
@@ -13,7 +16,9 @@ from app.api.routes.intelligence import router as intelligence_router
 from app.api.routes.operations import router as operations_router
 from app.api.routes.organizations import router as organizations_router
 from app.api.routes.structured import router as structured_router
+from app.core.body_limit import BodyLimit
 from app.core.config import Settings, get_settings
+from app.core.observability import configure_logs, log_request
 from app.core.security import verify_csrf
 from app.db.session import build_engine
 from app.documents.limits import UploadLimitMiddleware
@@ -21,6 +26,7 @@ from app.documents.limits import UploadLimitMiddleware
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or get_settings()
+    configure_logs()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -33,6 +39,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title=config.app_name, version="0.1.0", lifespan=lifespan)
     app.state.settings = config
+
+    @app.exception_handler(SQLAlchemyError)
+    async def database_error(request: Request, exc: SQLAlchemyError):
+        logging.getLogger("app.http").error("database_request_failed")
+        return JSONResponse({"detail": "Database temporarily unavailable; please retry"}, 503)
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
@@ -62,6 +73,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["Accept", "Content-Type", "X-CSRF-Token"],
     )
     app.add_middleware(UploadLimitMiddleware, limit=config.upload_max_bytes)
+    app.add_middleware(BodyLimit, limit=config.json_max_bytes)
+    if config.allowed_hosts != ["*"]:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.allowed_hosts)
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(organizations_router, prefix="/api/v1")
@@ -69,4 +83,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(intelligence_router, prefix="/api/v1")
     app.include_router(structured_router, prefix="/api/v1")
     app.include_router(operations_router, prefix="/api/v1")
+    app.middleware("http")(log_request)
     return app

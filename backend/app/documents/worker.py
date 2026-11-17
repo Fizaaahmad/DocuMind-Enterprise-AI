@@ -7,7 +7,6 @@ import os
 import signal
 import subprocess
 import sys
-import time
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
@@ -16,7 +15,9 @@ from sqlalchemy import Engine, and_, delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import BACKEND_ROOT, Settings, get_settings
+from app.core.observability import configure_logs
 from app.core.security import now
+from app.core.worker_runtime import WorkerRuntime
 from app.db.session import build_engine
 from app.documents.chunking import chunk_text
 from app.documents.storage import Storage, get_storage
@@ -282,6 +283,9 @@ def publish(engine: Engine, claim: Claim, result: dict, settings: Settings) -> b
 
 
 def fail(engine: Engine, claim: Claim, settings: Settings, message: str, transient=False):
+    logger.warning(
+        "document_job_failed", extra={"document_id": claim.document_id, "kind": claim.kind}
+    )
     with Session(engine) as db:
         document, job = active_claim(db, claim)
         if not document:
@@ -309,6 +313,14 @@ def run_once(engine: Engine, settings: Settings, extractor=extract_in_process) -
     claim = claim_job(engine, settings)
     if not claim:
         return False
+    logger.info(
+        "document_job_started",
+        extra={
+            "document_id": claim.document_id,
+            "organization_id": claim.organization_id,
+            "kind": claim.kind,
+        },
+    )
     storage = get_storage(settings)
     try:
         if claim.kind == "delete":
@@ -341,6 +353,9 @@ def run_once(engine: Engine, settings: Settings, extractor=extract_in_process) -
             else "Document processing failed; please retry"
         )
         fail(engine, claim, settings, message, transient=True)
+    logger.info(
+        "document_job_finished", extra={"document_id": claim.document_id, "kind": claim.kind}
+    )
     return True
 
 
@@ -350,21 +365,23 @@ def main():
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     settings = get_settings()
+    configure_logs()
     engine = build_engine(str(settings.database_url))
-    logger.info("Document worker started; storage=%s", settings.storage_path)
+    logger.info("worker_started")
     try:
-        while True:
-            try:
-                handled = run_once(engine, settings)
-                if not args.once or not handled:
-                    handled = run_analysis_once(engine, settings) or handled
-            except Exception:
-                logger.warning("Worker database unavailable; will retry")
-                handled = False
-            if args.once:
-                break
-            if not handled:
-                time.sleep(settings.worker_poll_seconds)
+        with WorkerRuntime(settings.worker_health_file) as runtime:
+            while not runtime.stopping.is_set():
+                try:
+                    handled = run_once(engine, settings)
+                    if not runtime.stopping.is_set() and (not args.once or not handled):
+                        handled = run_analysis_once(engine, settings) or handled
+                except Exception:
+                    logger.warning("Worker database unavailable; will retry")
+                    handled = False
+                if args.once:
+                    break
+                if not handled:
+                    runtime.stopping.wait(settings.worker_poll_seconds)
     except KeyboardInterrupt:
         logger.info("Worker stopped; interrupted leases will be reclaimed")
     finally:

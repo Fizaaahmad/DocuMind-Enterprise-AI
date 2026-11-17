@@ -3,6 +3,22 @@ import { proxyRequest } from "./proxy";
 
 afterEach(() => vi.unstubAllGlobals());
 
+it("proxies only GET health checks and carries safe request identifiers", async () => {
+  const fetcher = vi.fn().mockResolvedValue(new Response("{}", {
+    headers: { "X-Request-ID": "a".repeat(32) },
+  }));
+  vi.stubGlobal("fetch", fetcher);
+  const response = await proxyRequest(new Request("http://localhost", {
+    headers: { "X-Request-ID": "a".repeat(32) },
+  }), ["health", "ready"]);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("x-request-id")).toBe("a".repeat(32));
+  expect(fetcher.mock.calls[0][0]).toContain("/api/v1/health/ready");
+  expect((await proxyRequest(new Request("http://localhost", { method: "POST" }),
+    ["health"])).status).toBe(405);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
 it("allows scoped intelligence routes and rejects arbitrary provider paths", async () => {
   const org = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const fetcher = vi.fn().mockResolvedValue(Response.json({ sources: [] }));

@@ -5,11 +5,12 @@ export type HealthSnapshot = {
   pgvector: ServiceStatus;
 };
 
-const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
+// Keep status available when FastAPI is private behind the frontend.
+const apiUrl = "/api/backend";
 
 async function check(path: string) {
   try {
-    const response = await fetch(`${apiUrl}/api/v1/${path}`, {
+    const response = await fetch(`${apiUrl}/${path}`, {
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });

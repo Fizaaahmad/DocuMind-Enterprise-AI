@@ -1,5 +1,7 @@
 """Analysis jobs run in the existing document worker, with independent leases."""
 
+import logging
+import time
 import uuid
 from datetime import timedelta
 
@@ -14,6 +16,7 @@ from app.structured.sources import check_evidence, live_revisions, sections_for
 
 
 def run_analysis_once(engine, settings):
+    started = time.monotonic()
     with Session(engine) as db:
         run = db.scalar(
             select(AnalysisRun)
@@ -39,6 +42,14 @@ def run_analysis_once(engine, settings):
         run.attempts += 1
         run.lease_until = now() + timedelta(seconds=settings.analysis_timeout_seconds + 30)
         run_id, token = run.id, run.lease_token
+        logging.getLogger(__name__).info(
+            "analysis_job_started",
+            extra={
+                "job_id": run_id,
+                "organization_id": run.organization_id,
+                "attempt": run.attempts,
+            },
+        )
         db.commit()
     try:
         with Session(engine) as db:
@@ -82,4 +93,8 @@ def run_analysis_once(engine, settings):
                 run.available_at = now() + timedelta(seconds=min(300, 2**run.attempts))
             run.lease_token = run.lease_until = None
             db.commit()
+    logging.getLogger(__name__).info(
+        "analysis_job_finished",
+        extra={"job_id": run_id, "duration_ms": round((time.monotonic() - started) * 1000)},
+    )
     return True

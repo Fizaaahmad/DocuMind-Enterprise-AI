@@ -23,6 +23,61 @@ router = APIRouter(prefix="/organizations/{organization_id}/operations", tags=["
 Selection = Annotated[Filters, Query()]
 
 
+@router.get("/diagnostics")
+def diagnostics(
+    organization_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    from app.core.security import now
+    from app.models import DocumentJob
+
+    membership(db, organization_id, user, admin=True)
+    jobs = db.execute(
+        select(DocumentJob.state, func.count())
+        .where(
+            DocumentJob.organization_id == organization_id,
+        )
+        .group_by(DocumentJob.state)
+    ).all()
+    failed = db.scalars(
+        select(DocumentJob)
+        .where(
+            DocumentJob.organization_id == organization_id,
+            DocumentJob.state == "failed",
+        )
+        .limit(20)
+    ).all()
+    stale = db.scalar(
+        select(func.count())
+        .select_from(DocumentJob)
+        .where(
+            DocumentJob.organization_id == organization_id,
+            DocumentJob.state == "running",
+            DocumentJob.lease_until < now(),
+        )
+    )
+    analyses = db.execute(
+        select(AnalysisRun.state, func.count())
+        .where(
+            AnalysisRun.organization_id == organization_id,
+        )
+        .group_by(AnalysisRun.state)
+    ).all()
+    return {
+        "document_jobs": dict(jobs),
+        "analysis_jobs": dict(analyses),
+        "expired_document_leases": stale,
+        "failed_documents": [
+            {
+                "document_id": item.document_id,
+                "kind": item.kind,
+                "attempts": item.attempts,
+                "error": item.last_error,
+            }
+            for item in failed
+        ],
+    }
+
+
 def count(db, query):
     return db.scalar(select(func.count()).select_from(query.subquery()))
 

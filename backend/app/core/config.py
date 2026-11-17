@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -8,7 +9,9 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=BACKEND_ROOT / ".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=BACKEND_ROOT / ".env", extra="ignore", hide_input_in_errors=True
+    )
 
     app_name: str = "DocuMind API"
     environment: str = "development"
@@ -16,6 +19,11 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
     auth_secret: SecretStr | None = None
     cookie_secure: bool = False
+    allowed_hosts: list[str] = ["*"]
+    json_max_bytes: int = Field(default=65536, ge=16384, le=1048576)
+    worker_health_file: Path | None = None
+    organization_max_documents: int = Field(default=10000, ge=1)
+    organization_max_storage_bytes: int = Field(default=10 * 1024**3, ge=1024)
     access_token_minutes: int = Field(default=10, ge=1, le=60)
     session_days: int = Field(default=7, ge=1, le=30)
     storage_path: Path = BACKEND_ROOT / "var" / "documents"
@@ -92,11 +100,52 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "Non-development environments require AUTH_SECRET and secure cookies"
                 )
-            if any(not origin.startswith("https://") for origin in self.cors_origins):
+            if not self.cors_origins or any(
+                not origin.startswith("https://") for origin in self.cors_origins
+            ):
                 raise ValueError("Non-development origins must use HTTPS")
+            from urllib.parse import urlsplit
+
+            for origin in self.cors_origins:
+                parsed = urlsplit(origin)
+                if (
+                    not parsed.hostname
+                    or parsed.username
+                    or parsed.password
+                    or parsed.path
+                    or parsed.query
+                    or parsed.fragment
+                    or "*" in origin
+                ):
+                    raise ValueError("Production CORS origins must be exact HTTPS origins")
+            if self.environment == "production" and (
+                not self.allowed_hosts or "*" in self.allowed_hosts
+            ):
+                raise ValueError("Production requires explicit ALLOWED_HOSTS")
+            value = self.auth_secret.get_secret_value()
+            if not value.strip() or "replace" in value.lower() or "change-me" in value.lower():
+                raise ValueError("Production requires a generated AUTH_SECRET")
         return self
+
+
+def secret_files(keys=("DATABASE_URL", "AUTH_SECRET", "LLM_API_KEY")):
+    values = {}
+    for key in keys:
+        path = os.environ.get(key + "_FILE")
+        if path:
+            try:
+                values[key.lower()] = Path(path).read_text(encoding="utf-8").strip()
+            except OSError:
+                raise ValueError(f"Cannot read {key}_FILE") from None
+    return values
+
+
+class MigrationSettings(BaseSettings):
+    model_config = Settings.model_config
+    database_url: PostgresDsn
+    migration_statement_timeout_ms: int = Field(default=120000, ge=1000, le=3600000)
 
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings(**secret_files())

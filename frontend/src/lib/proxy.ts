@@ -4,6 +4,7 @@ export async function proxyRequest(
   segments: string[],
 ): Promise<Response> {
   const path = segments.join("/");
+  const health = /^health(?:\/ready)?$/;
   const auth = /^auth\/(csrf|register|login|refresh|logout|me)$/;
   const orgs =
     /^organizations(?:\/[0-9a-f-]{36}(?:\/members(?:\/[0-9a-f-]{36})?)?)?$/i;
@@ -14,18 +15,19 @@ export async function proxyRequest(
   const structured =
     /^organizations\/[0-9a-f-]{36}\/structured\/(?:templates|obligations|documents\/[0-9a-f-]{36}\/revisions|runs(?:\/[0-9a-f-]{36}(?:\/(?:sections|retry|export|items\/[0-9a-f-]{36}\/review))?)?)$/i;
   const operations =
-    /^organizations\/[0-9a-f-]{36}\/operations\/(?:summary|items|members|activity|export|items\/[0-9a-f-]{36}\/assignment)$/i;
+    /^organizations\/[0-9a-f-]{36}\/operations\/(?:summary|items|members|activity|export|diagnostics|items\/[0-9a-f-]{36}\/assignment)$/i;
   if (
     !auth.test(path) &&
     !orgs.test(path) &&
     !documents.test(path) &&
     !intelligence.test(path) &&
     !structured.test(path) &&
-    !operations.test(path)
+    !operations.test(path) && !health.test(path)
   )
     return new Response(null, { status: 404 });
   const headers = new Headers();
-  for (const key of ["cookie", "origin", "content-type", "x-csrf-token"]) {
+  if (health.test(path) && request.method !== "GET") return new Response(null, { status: 405 });
+  for (const key of ["cookie", "origin", "content-type", "x-csrf-token", "x-request-id"]) {
     const value = request.headers.get(key);
     if (value) headers.set(key, value);
   }
@@ -43,6 +45,7 @@ export async function proxyRequest(
       "content-type",
       "content-disposition",
       "content-length",
+      "x-request-id",
     ]) {
       const value = response.headers.get(key);
       if (value) outgoing.set(key, value);

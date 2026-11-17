@@ -2,7 +2,7 @@ import uuid
 from datetime import timedelta
 
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -60,7 +60,7 @@ def queue_deletion(db: Session, document: Document):
 def upload_document(
     db: Session, settings: Settings, org_id: uuid.UUID, user: User, file: UploadFile
 ) -> Document:
-    membership(db, org_id, user)
+    membership(db, org_id, user, lock=True)
     try:
         filename, format = safe_filename(file.filename)
         if file.size and file.size > settings.upload_max_bytes:
@@ -70,7 +70,27 @@ def upload_document(
         raise HTTPException(413, "File exceeds the configured upload limit") from None
     except InvalidDocument as exc:
         raise HTTPException(422, str(exc)) from None
+    file.file.seek(0, 2)
+    actual_size = file.file.tell()
+    file.file.seek(0)
+    if actual_size > settings.upload_max_bytes:
+        raise HTTPException(413, "File exceeds the configured upload limit")
+    count, used = db.execute(
+        select(func.count(), func.coalesce(func.sum(Document.size_bytes), 0)).where(
+            Document.organization_id == org_id,
+            Document.deleted_at.is_(None),
+        )
+    ).one()
+    if (
+        count >= settings.organization_max_documents
+        or used + actual_size > settings.organization_max_storage_bytes
+    ):
+        raise HTTPException(
+            413,
+            "Organization quota reached; remove documents or contact an administrator",
+        )
     document = Document(
+        size_bytes=actual_size,
         organization_id=org_id,
         uploader_id=user.id,
         filename=filename,

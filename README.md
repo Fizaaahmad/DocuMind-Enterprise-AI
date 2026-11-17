@@ -1,5 +1,14 @@
 # DocuMind
 
+## Phase 7: production readiness
+
+Production uses the separate [production Compose file](compose.production.yaml).
+See [deployment and recovery instructions](deploy/README.md) for exact Windows
+PowerShell commands, private secret initialization, TLS, migrations, backups,
+fresh-target restoration, diagnostics, and isolated HTTPS verification.
+Existing local development commands below remain unchanged. Phase 7 adds no
+database schema migration and no paid provider integration.
+
 ## Phase 6: enterprise operations and portfolio intelligence
 
 Open **http://localhost:3000/operations** or choose **Enterprise overview** from
@@ -826,7 +835,7 @@ Open <http://localhost:3000/signup>. Register a name, email, and 12–128 charac
 
 ### Authentication and cookie architecture
 
-Browser authentication requests use same-origin `/api/backend/...` Next.js route handlers. The proxy forwards only approved identity/organization paths and the Cookie, Origin, CSRF, and content-type headers to the server-only `BACKEND_URL`. It forwards each `Set-Cookie` header separately. Authentication tokens are never returned in JSON or stored in localStorage/sessionStorage. The existing health page continues using `NEXT_PUBLIC_API_URL` directly.
+Browser requests use same-origin `/api/backend/...` Next.js route handlers. The proxy forwards only approved paths and the Cookie, Origin, CSRF, content-type and request-ID headers to the server-only `BACKEND_URL`. It forwards each `Set-Cookie` header separately. Authentication tokens are never returned in JSON or stored in localStorage/sessionStorage. Health checks also use this proxy so the backend can remain private; `NEXT_PUBLIC_API_URL` is no longer needed.
 
 FastAPI sets host-only HttpOnly cookies for access, refresh, and CSRF. The browser reads a signed CSRF value from `GET /auth/csrf` into memory and sends it in `X-CSRF-Token` on every mutation. FastAPI requires a trusted Origin plus a matching, signed, session-bound CSRF token, including for registration, login, refresh, and logout. CORS uses explicit origins and credentials; wildcard origins are rejected. The proxy preserves the original Origin rather than inventing a trusted one.
 
