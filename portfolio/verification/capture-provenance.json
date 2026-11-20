@@ -1,0 +1,13 @@
+{
+  "environment": "isolated actual Next.js + FastAPI + PostgreSQL + worker",
+  "fictional_data": true,
+  "provider": "mock",
+  "embeddings": "actual locally cached Sentence Transformer",
+  "migration_check": "passed on disposable database",
+  "document_count": 6,
+  "answer_citations": 1,
+  "analysis_items": 11,
+  "test_evidence": "Prior recorded runs: 73 frontend passed; 155 backend passed, 1 optional skip. Not rerun for portfolio generation.",
+  "live_openai": "Fiza Ahmad successfully completed a real paid local Q&A test; exact developer-supplied record: live-openai-validation.json. Separate from this mock-only capture; not replayed.",
+  "paid_api_calls_during_portfolio_capture": 0
+}

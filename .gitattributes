@@ -1,0 +1,2 @@
+# Preserve portfolio PDF bytes across Windows and Unix checkouts.
+portfolio/**/*.pdf binary

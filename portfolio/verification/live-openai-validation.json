@@ -1,0 +1,23 @@
+{
+  "evidence_type": "developer-supplied manual application test record",
+  "recorded_by": "Fiza Ahmad",
+  "environment": "local DocuMind application",
+  "provider": "OpenAI Responses API",
+  "model": "gpt-6-luna",
+  "reported_model_name": "GPT-6 Luna",
+  "paid_request_completed": true,
+  "question": "What must Acme pay, and when?",
+  "answer": "Acme must pay USD 50,000 by 2030-01-01; the supplier must deliver the software before payment.",
+  "input_tokens": 434,
+  "output_tokens": 210,
+  "estimated_cost_usd": "0.0001484",
+  "citations_displayed": true,
+  "scope": "One documented successful paid document-Q&A example; not a benchmark or validation of every AI feature.",
+  "cost_scope": "Application-displayed estimate for this recorded request, not an invoice or a statement of current model pricing.",
+  "source": "Fiza Ahmad's supplied portfolio revision request",
+  "repository_corroboration": "docs/PHASE8.md documents the same Acme question and source terms; provider, grounding and usage-accounting code is implemented.",
+  "raw_provider_log_located_in_repository": false,
+  "authentic_live_request_screenshot_located_in_repository": false,
+  "request_replayed_for_portfolio": false,
+  "additional_paid_calls_during_portfolio_generation": 0
+}

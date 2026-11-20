@@ -21,3 +21,29 @@ deploy/secrets/
 deploy/certs/
 backups/
 .production-smoke/
+
+# Local portfolio distribution archive, extracted copy, and render previews.
+/portfolio/DocuMind-Portfolio-Package.zip
+/portfolio/DocuMind-Portfolio-Package/
+/portfolio/verification/*.png
+
+# Reproducible portfolio intermediates and unselected capture variants.
+/portfolio/source/*.html
+/portfolio/source/demo-documents/
+/portfolio/verification/layout-checks.json
+/portfolio/verification/pdf-checks.json
+/portfolio/verification/screenshot-dimensions.json
+/portfolio/verification/screenshots.json
+/portfolio/screenshots/**/*.png
+!/portfolio/screenshots/01-dashboard.png
+!/portfolio/screenshots/01-dashboard-detail.png
+!/portfolio/screenshots/02-document-library.png
+!/portfolio/screenshots/05-extraction-detail.png
+!/portfolio/screenshots/08-comparison-detail.png
+!/portfolio/screenshots/dark/03-assistant.png
+!/portfolio/screenshots/dark/03-assistant-detail.png
+!/portfolio/screenshots/dark/09-operations.png
+!/portfolio/screenshots/post-ready/dark/03-assistant.png
+!/portfolio/screenshots/post-ready/light/01-dashboard.png
+!/portfolio/screenshots/post-ready/light/08-comparison.png
+!/portfolio/screenshots/post-ready/dark/09-operations.png
