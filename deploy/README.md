@@ -2,9 +2,11 @@
 
 This is a single-server Docker Compose deployment. Only NGINX publishes ports;
 Next.js, FastAPI, the serial PostgreSQL-backed worker, and pgvector PostgreSQL
-communicate privately. There is no paid service or LLM integration. Development
-uses the existing root `compose.yaml` and unchanged Windows commands in the
-main README. Never merge the production file with the development Compose file.
+communicate privately. The base production configuration leaves LLM generation
+disabled. Optional OpenAI generation uses the explicit [Phase 8 configuration and
+egress overlay](../docs/PHASE8.md); enabling it can incur API charges. Development
+uses root `compose.yaml` for PostgreSQL and the [local setup guide](../docs/setup.md)
+for API, worker and frontend. Never merge production and development Compose files.
 
 ## First startup from Windows PowerShell
 
