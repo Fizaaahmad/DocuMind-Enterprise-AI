@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useConfirmation } from "../ui";
 import { api } from "../../lib/api";
 import {
   DocumentContent,
@@ -22,6 +23,7 @@ export function DocumentDetails({
   onClose: () => void;
   onChange: () => void;
 }) {
+  const { confirm, confirmation } = useConfirmation();
   const [record, setRecord] = useState(initial);
   const [content, setContent] = useState<DocumentContent | null>(null);
   const [page, setPage] = useState(1);
@@ -86,6 +88,7 @@ export function DocumentDetails({
       className="panel mt-6 overflow-hidden"
       aria-labelledby="document-details-title"
     >
+      {confirmation}
       <div className="flex items-start justify-between gap-4 border-b border-slate-100 p-6">
         <div className="min-w-0">
           <p className="eyebrow">Document details</p>
@@ -181,10 +184,11 @@ export function DocumentDetails({
             <button
               className="rounded-lg border border-rose-200 px-4 py-2.5 text-sm font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
               disabled={busy}
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  window.confirm(
-                    `Delete ${record.filename}? This removes the original and extracted content.`,
+                  await confirm(
+                    "Delete document",
+                    `Delete ${record.filename}? This removes the original and extracted content and makes linked evidence unavailable.`,
                   )
                 )
                   void action(async () => {

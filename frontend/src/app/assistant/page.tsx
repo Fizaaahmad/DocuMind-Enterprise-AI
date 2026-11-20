@@ -1,9 +1,11 @@
 import { Assistant } from "../../components/assistant";
 import { requireUser } from "../../lib/server-auth";
 
+export const metadata = { title: "Knowledge Assistant" };
+
 export const dynamic = "force-dynamic";
 
 export default async function AssistantPage() {
-  await requireUser();
-  return <Assistant />;
+  const user = await requireUser();
+  return <Assistant user={user} />;
 }

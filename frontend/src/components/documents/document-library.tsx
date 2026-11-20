@@ -7,21 +7,19 @@ import { api, ApiError } from "../../lib/api";
 import { DocumentList, DocumentRecord, formatBytes } from "../../lib/documents";
 import type { Organization, User } from "../../lib/types";
 import { DocumentDetails } from "./document-details";
+import { WorkspaceShell } from "../workspace-shell";
+import { preferredOrganization } from "../../lib/organization-preference";
+import { StatusBadge, Skeleton } from "../ui";
 import { UploadZone } from "./upload-zone";
-
-const statusColors = {
-  pending: "bg-slate-100 text-slate-600",
-  processing: "bg-indigo-50 text-indigo-700",
-  completed: "bg-emerald-50 text-emerald-700",
-  failed: "bg-rose-50 text-rose-700",
-};
 
 function DocumentWorkspace({
   organization,
   user,
+  initialDocument,
 }: {
   organization: Organization;
   user: User;
+  initialDocument?: string;
 }) {
   const [data, setData] = useState<DocumentList | null>(null);
   const [limit, setLimit] = useState<number | null>(null);
@@ -56,6 +54,20 @@ function DocumentWorkspace({
     },
     [router],
   );
+  useEffect(() => {
+    let active = true;
+    if (initialDocument)
+      void api<DocumentRecord>(`${base}/${encodeURIComponent(initialDocument)}`)
+        .then((record) => {
+          if (active) setSelected(record);
+        })
+        .catch((error) => {
+          if (active) report(error);
+        });
+    return () => {
+      active = false;
+    };
+  }, [base, initialDocument, report]);
   const refresh = useCallback(() => {
     void api<DocumentList>(`${base}?${params}`)
       .then((items) => {
@@ -207,9 +219,10 @@ function DocumentWorkspace({
           </p>
         )}
         {loading ? (
-          <p role="status" className="p-10 text-center text-sm text-slate-500">
-            Loading documents…
-          </p>
+          <div>
+            <span className="sr-only">Loading documents…</span>
+            <Skeleton rows={5} />
+          </div>
         ) : !data?.items.length ? (
           <div className="px-6 py-14 text-center">
             <div
@@ -265,16 +278,7 @@ function DocumentWorkspace({
                       </button>
                     </td>
                     <td className="px-4 py-4">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${statusColors[item.status]}`}
-                      >
-                        {item.status === "processing" && (
-                          <span className="mr-1 inline-block animate-pulse">
-                            ●
-                          </span>
-                        )}
-                        {item.status}
-                      </span>
+                      <StatusBadge value={item.status} />
                     </td>
                     <td className="whitespace-nowrap px-4 py-4 text-slate-500">
                       {formatBytes(item.size_bytes)}
@@ -329,9 +333,11 @@ function DocumentWorkspace({
 export function DocumentLibrary({
   user,
   initialOrganization,
+  initialDocument,
 }: {
   user: User;
   initialOrganization?: string;
+  initialDocument?: string;
 }) {
   const [organizations, setOrganizations] = useState<Organization[] | null>(
     null,
@@ -344,11 +350,7 @@ export function DocumentLibrary({
       .then((items) => {
         if (active) {
           setOrganizations(items);
-          setSelected(
-            items.find((item) => item.id === initialOrganization)?.id ??
-              items[0]?.id ??
-              "",
-          );
+          setSelected(preferredOrganization(items, initialOrganization));
         }
       })
       .catch((error) => {
@@ -360,82 +362,67 @@ export function DocumentLibrary({
   }, [initialOrganization]);
   const organization = organizations?.find((item) => item.id === selected);
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-5">
-          <Link href="/dashboard" className="text-xl font-bold tracking-tight">
-            DocuMind<span className="text-indigo-600">.</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link className="text-sm text-slate-500" href="/">
-              System status
-            </Link>
-            <Link className="btn-secondary" href="/dashboard">
-              Team & access
-            </Link>
-            <Link className="btn-secondary" href="/assistant">AI assistant</Link>
-          </div>
-        </div>
-      </header>
-      <main className="mx-auto max-w-7xl px-6 py-10">
-        <div className="mb-8 flex flex-wrap items-end justify-between gap-5">
-          <div>
-            <p className="eyebrow">Organization knowledge</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight">
-              Your documents, organized.
-            </h1>
-            <p className="mt-3 text-sm text-slate-500">
-              A secure home for source files and extracted content.
-            </p>
-          </div>
-          {organizations && organizations.length > 0 && (
-            <label className="field-label min-w-56">
-              Active organization
-              <select
-                aria-label="Active organization"
-                className="input"
-                value={selected}
-                onChange={(event) => setSelected(event.target.value)}
-              >
-                {organizations.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-        {error && (
-          <p role="alert" className="error-box mb-6">
-            {error}
+    <WorkspaceShell
+      active="documents"
+      title="Document library"
+      description="Your organization’s knowledge. Organized, searchable, ready for action."
+      organizationId={selected}
+      user={user}
+      organizationSelector={
+        organizations &&
+        organizations.length > 0 && (
+          <label>
+            Active organization
+            <select
+              className="input"
+              aria-label="Active organization"
+              value={selected}
+              onChange={(event) => setSelected(event.target.value)}
+            >
+              {organizations.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )
+      }
+    >
+      {error && (
+        <p role="alert" className="error-box mb-6">
+          {error}
+        </p>
+      )}
+      {organization ? (
+        <DocumentWorkspace
+          key={organization.id}
+          organization={organization}
+          user={user}
+          initialDocument={
+            !initialOrganization || selected === initialOrganization
+              ? initialDocument
+              : undefined
+          }
+        />
+      ) : organizations?.length === 0 ? (
+        <section className="panel p-10 text-center">
+          <h2 className="text-lg font-semibold">Create a workspace first</h2>
+          <p className="my-4 text-sm text-slate-500">
+            Documents belong to an organization. Create one or ask an Admin to
+            add you.
           </p>
-        )}
-        {organization ? (
-          <DocumentWorkspace
-            key={organization.id}
-            organization={organization}
-            user={user}
-          />
-        ) : organizations?.length === 0 ? (
-          <section className="panel p-10 text-center">
-            <h2 className="text-lg font-semibold">Create a workspace first</h2>
-            <p className="my-4 text-sm text-slate-500">
-              Documents belong to an organization. Create one or ask an Admin to
-              add you.
-            </p>
-            <Link className="btn-primary" href="/dashboard">
-              Manage organizations
-            </Link>
-          </section>
-        ) : (
-          !error && (
-            <p role="status" className="text-slate-500">
-              Loading your organizations…
-            </p>
-          )
-        )}
-      </main>
-    </div>
+          <Link className="btn-primary" href="/dashboard">
+            Manage organizations
+          </Link>
+        </section>
+      ) : (
+        !error && (
+          <p role="status" className="text-slate-500">
+            Loading your organizations…
+          </p>
+        )
+      )}
+    </WorkspaceShell>
   );
 }

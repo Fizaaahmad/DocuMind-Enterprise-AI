@@ -1,9 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { BusinessValues, Dialog } from "./ui";
+import { WorkspaceShell } from "./workspace-shell";
+import { preferredOrganization } from "../lib/organization-preference";
 import { useEffect, useState } from "react";
 import { api, apiResponse } from "../lib/api";
-import type { Organization } from "../lib/types";
+import type { Organization, User } from "../lib/types";
 import { ReviewPanel, type Item } from "./structured-workspace";
 
 type Member = { id: string; name: string };
@@ -64,7 +67,17 @@ const labels: Record<string, string> = {
   unresolved: "Unresolved validation",
 };
 
-export function OperationsWorkspace() {
+export function OperationsWorkspace({
+  user,
+  initialView,
+  initialFocus,
+  initialEngine,
+}: {
+  user?: User;
+  initialView?: string;
+  initialFocus?: string;
+  initialEngine?: string;
+} = {}) {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [organization, setOrganization] = useState("");
   const [error, setError] = useState("");
@@ -74,7 +87,7 @@ export function OperationsWorkspace() {
       .then((items) => {
         if (active) {
           setOrganizations(items);
-          setOrganization(items[0]?.id ?? "");
+          setOrganization(preferredOrganization(items));
         }
       })
       .catch((e) => {
@@ -85,58 +98,89 @@ export function OperationsWorkspace() {
     };
   }, []);
   return (
-    <main className="mx-auto max-w-7xl p-4 sm:p-8">
-      <header className="mb-6 flex flex-wrap justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold text-indigo-600">
-            DOCUMIND / OPERATIONS
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold">Enterprise overview</h1>
-          <p className="mt-2 text-slate-500">
-            Evidence, responsibilities, and review progress across your
-            organization.
-          </p>
-        </div>
-        <nav className="flex flex-wrap gap-4 text-sm text-indigo-700">
-          <Link href="/dashboard">Organization management</Link>
-          <Link href="/intelligence">Structured intelligence</Link>
-          <Link href="/documents">Documents</Link>
-        </nav>
-      </header>
+    <WorkspaceShell
+      user={user}
+      active="operations"
+      title="Enterprise overview"
+      description="Bring evidence, commitments and accountability into one clear view."
+      organizationId={organization}
+      organizationSelector={
+        <label className="mb-6 block max-w-sm text-sm font-medium">
+          Organization
+          <select
+            className="input mt-2"
+            value={organization}
+            onChange={(e) => setOrganization(e.target.value)}
+          >
+            {organizations.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      }
+    >
       {error && (
         <p role="alert" className="error">
           {error}
         </p>
       )}
-      <label className="mb-6 block max-w-sm text-sm font-medium">
-        Organization
-        <select
-          className="input mt-2"
-          value={organization}
-          onChange={(e) => setOrganization(e.target.value)}
-        >
-          {organizations.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </select>
-      </label>
+
       {organization ? (
-        <Workspace key={organization} organization={organization} />
+        <Workspace
+          key={organization}
+          organization={organization}
+          initialView={initialView}
+          initialFocus={initialFocus}
+          initialEngine={initialEngine}
+        />
       ) : (
         <p>Create an organization to begin.</p>
       )}
-    </main>
+    </WorkspaceShell>
   );
 }
 
-function Workspace({ organization }: { organization: string }) {
+function Workspace({
+  organization,
+  initialView,
+  initialFocus,
+  initialEngine,
+}: {
+  organization: string;
+  initialView?: string;
+  initialFocus?: string;
+  initialEngine?: string;
+}) {
   const base = `/organizations/${organization}/operations`;
-  const [tab, setTab] = useState("overview");
+  const startingView = [
+    "overview",
+    "obligations",
+    "reviews",
+    "risks",
+    "activity",
+  ].includes(initialView ?? "")
+    ? initialView!
+    : "overview";
+  const [tab, setTab] = useState(startingView);
   const [filters, setFilters] = useState<Record<string, string>>({
     scope: "current",
-    engine: "deterministic",
+    engine: ["deterministic", "openai", "mock", "all"].includes(
+      initialEngine ?? "",
+    )
+      ? initialEngine!
+      : "deterministic",
+    kind:
+      startingView === "reviews"
+        ? "review"
+        : startingView === "risks"
+          ? "risk"
+          : startingView === "obligations"
+            ? "obligation"
+            : "",
+    focus:
+      initialFocus && Object.hasOwn(labels, initialFocus) ? initialFocus : "",
   });
   const [summary, setSummary] = useState<Summary | null>(null);
   const [items, setItems] = useState<RecordItem[]>([]);
@@ -296,13 +340,16 @@ function Workspace({ organization }: { organization: string }) {
           (key) => (
             <button
               key={key}
-              disabled={busy || tab === key}
+              disabled={busy}
+              aria-pressed={tab === key}
               className={
                 tab === key
                   ? "btn-primary capitalize"
                   : "btn-secondary capitalize"
               }
-              onClick={() => view(key)}
+              onClick={() => {
+                if (tab !== key) view(key);
+              }}
             >
               {key === "reviews"
                 ? "Review queue"
@@ -313,11 +360,11 @@ function Workspace({ organization }: { organization: string }) {
           ),
         )}
       </nav>
-      <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        Rule-based review candidates, not AI-confirmed legal or compliance
-        risks. Counts represent analysis records; independent templates may
-        describe overlapping business items. Mock records are excluded by
-        default.
+      <p className="review-disclaimer">
+        Findings are review candidates, not verified legal or compliance
+        conclusions. Counts represent analysis records; independent templates
+        may describe overlapping business items. Engines remain separate
+        records. Mock records are excluded by default and labeled when included.
       </p>
       {error && (
         <p role="alert" className="error">
@@ -372,118 +419,123 @@ function Workspace({ organization }: { organization: string }) {
             ]}
             onChange={(value) => change("document_id", value)}
           />
-          <Select
-            label="Assignee"
-            value={
-              filters.unassigned === "true"
-                ? "unassigned"
-                : (filters.assignee_id ?? "")
-            }
-            options={[
-              ["", "All assignments"],
-              ["unassigned", "Unassigned"],
-              ...members.map((m) => [m.id, m.name]),
-            ]}
-            onChange={(value) => {
-              setPage(1);
-              setFilters((current) => ({
-                ...current,
-                assignee_id: value === "unassigned" ? "" : value,
-                unassigned: value === "unassigned" ? "true" : "",
-              }));
-            }}
-          />
-          <Select
-            label="Review status"
-            value={filters.review_status ?? ""}
-            options={[
-              ["", "All review states"],
-              ...["pending", "corrected", "approved", "rejected"].map(
-                (value) => [value, value],
-              ),
-            ]}
-            onChange={(value) => change("review_status", value)}
-          />
-          <Select
-            label="Obligation status"
-            value={filters.obligation_status ?? ""}
-            options={[
-              ["", "All lifecycle states"],
-              ...["open", "in_progress", "completed", "dismissed"].map(
-                (value) => [value, value],
-              ),
-            ]}
-            onChange={(value) => change("obligation_status", value)}
-          />
-          <Select
-            label="Severity"
-            value={filters.severity ?? ""}
-            options={[
-              ["", "All severities"],
-              ["low", "Low"],
-              ["medium", "Medium"],
-              ["high", "High"],
-            ]}
-            onChange={(value) => change("severity", value)}
-          />
-          <label className="text-xs font-medium">
-            Responsible party (source text)
-            <input
-              className="input mt-1"
-              value={filters.party ?? ""}
-              maxLength={100}
-              onChange={(e) => change("party", e.target.value)}
-            />
-          </label>
-          <Select
-            label="Contract deadline timing"
-            value={filters.timing ?? ""}
-            options={[
-              ["", "All contract deadlines"],
-              ["overdue", "Overdue (open records)"],
-              ["upcoming", "Next 7 days (open records)"],
-              ["unknown", "Unknown deadline"],
-            ]}
-            onChange={(value) => change("timing", value)}
-          />
-          <Select
-            label="Assignment timing"
-            value={filters.assignment_timing ?? ""}
-            options={[
-              ["", "All workflow due dates"],
-              ["overdue", "Overdue work"],
-              ["upcoming", "Upcoming work"],
-              ["unknown", "No workflow due date"],
-            ]}
-            onChange={(value) => change("assignment_timing", value)}
-          />
-          <label className="text-xs font-medium">
-            Contract deadline from
-            <input
-              type="date"
-              className="input mt-1"
-              value={filters.deadline_from ?? ""}
-              onChange={(e) => change("deadline_from", e.target.value)}
-            />
-          </label>
-          <label className="text-xs font-medium">
-            Contract deadline to
-            <input
-              type="date"
-              className="input mt-1"
-              value={filters.deadline_to ?? ""}
-              onChange={(e) => change("deadline_to", e.target.value)}
-            />
-          </label>
-          <label className="text-xs font-medium">
-            Deadline reference date (UTC; current state)
-            <input
-              type="date"
-              className="input mt-1"
-              value={filters.as_of ?? ""}
-              onChange={(e) => change("as_of", e.target.value)}
-            />
-          </label>
+          <details className="advanced-filters">
+            <summary>Advanced filters & deadlines</summary>
+            <div className="advanced-filter-grid">
+              <Select
+                label="Assignee"
+                value={
+                  filters.unassigned === "true"
+                    ? "unassigned"
+                    : (filters.assignee_id ?? "")
+                }
+                options={[
+                  ["", "All assignments"],
+                  ["unassigned", "Unassigned"],
+                  ...members.map((m) => [m.id, m.name]),
+                ]}
+                onChange={(value) => {
+                  setPage(1);
+                  setFilters((current) => ({
+                    ...current,
+                    assignee_id: value === "unassigned" ? "" : value,
+                    unassigned: value === "unassigned" ? "true" : "",
+                  }));
+                }}
+              />
+              <Select
+                label="Review status"
+                value={filters.review_status ?? ""}
+                options={[
+                  ["", "All review states"],
+                  ...["pending", "corrected", "approved", "rejected"].map(
+                    (value) => [value, value],
+                  ),
+                ]}
+                onChange={(value) => change("review_status", value)}
+              />
+              <Select
+                label="Obligation status"
+                value={filters.obligation_status ?? ""}
+                options={[
+                  ["", "All lifecycle states"],
+                  ...["open", "in_progress", "completed", "dismissed"].map(
+                    (value) => [value, value],
+                  ),
+                ]}
+                onChange={(value) => change("obligation_status", value)}
+              />
+              <Select
+                label="Severity"
+                value={filters.severity ?? ""}
+                options={[
+                  ["", "All severities"],
+                  ["low", "Low"],
+                  ["medium", "Medium"],
+                  ["high", "High"],
+                ]}
+                onChange={(value) => change("severity", value)}
+              />
+              <label className="text-xs font-medium">
+                Responsible party (source text)
+                <input
+                  className="input mt-1"
+                  value={filters.party ?? ""}
+                  maxLength={100}
+                  onChange={(e) => change("party", e.target.value)}
+                />
+              </label>
+              <Select
+                label="Contract deadline timing"
+                value={filters.timing ?? ""}
+                options={[
+                  ["", "All contract deadlines"],
+                  ["overdue", "Overdue (open records)"],
+                  ["upcoming", "Next 7 days (open records)"],
+                  ["unknown", "Unknown deadline"],
+                ]}
+                onChange={(value) => change("timing", value)}
+              />
+              <Select
+                label="Assignment timing"
+                value={filters.assignment_timing ?? ""}
+                options={[
+                  ["", "All workflow due dates"],
+                  ["overdue", "Overdue work"],
+                  ["upcoming", "Upcoming work"],
+                  ["unknown", "No workflow due date"],
+                ]}
+                onChange={(value) => change("assignment_timing", value)}
+              />
+              <label className="text-xs font-medium">
+                Contract deadline from
+                <input
+                  type="date"
+                  className="input mt-1"
+                  value={filters.deadline_from ?? ""}
+                  onChange={(e) => change("deadline_from", e.target.value)}
+                />
+              </label>
+              <label className="text-xs font-medium">
+                Contract deadline to
+                <input
+                  type="date"
+                  className="input mt-1"
+                  value={filters.deadline_to ?? ""}
+                  onChange={(e) => change("deadline_to", e.target.value)}
+                />
+              </label>
+              <label className="text-xs font-medium">
+                Deadline reference date (UTC; current state)
+                <input
+                  type="date"
+                  className="input mt-1"
+                  value={filters.as_of ?? ""}
+                  onChange={(e) => change("as_of", e.target.value)}
+                />
+              </label>
+            </div>
+          </details>
           <button
             className="btn-secondary self-end"
             onClick={() => {
@@ -553,10 +605,10 @@ function Workspace({ organization }: { organization: string }) {
             </div>
           </section>
           {tab === "overview" && (
-            <section className="panel p-5">
-              <h2 className="font-semibold">
+            <details className="panel inventory-details">
+              <summary className="font-semibold">
                 Organization-wide inventory (not item-filtered)
-              </h2>
+              </summary>
               <div className="mt-3 grid gap-4 text-sm sm:grid-cols-2">
                 <div>
                   <Link
@@ -590,7 +642,7 @@ function Workspace({ organization }: { organization: string }) {
                   </p>
                 </div>
               </div>
-            </section>
+            </details>
           )}
         </>
       )}
@@ -613,7 +665,9 @@ function Workspace({ organization }: { organization: string }) {
               <p className="mt-1 text-xs text-slate-500">
                 {event.engine === "mock"
                   ? "DEVELOPMENT MOCK record"
-                  : event.engine === "openai" ? "OpenAI GPT review candidate" : "Rule-based record"}
+                  : event.engine === "openai"
+                    ? "OpenAI GPT review candidate"
+                    : "Rule-based record"}
               </p>
               <p className="mt-1 text-xs text-slate-500">
                 {event.created_at} · {event.reason}
@@ -691,14 +745,18 @@ function Workspace({ organization }: { organization: string }) {
                 {items.map((item) => (
                   <tr className="border-t border-slate-100" key={item.id}>
                     <td className="px-5 py-4">
-                      <p className="font-medium">{item.name}</p>
+                      <p className="font-medium record-name">
+                        {item.name.replaceAll("_", " ")}
+                      </p>
                       <p className="mt-1 text-xs text-slate-500">
                         {item.filename} · {item.template_name}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
-                        {item.engine === "openai" ? "OpenAI GPT · review required" : item.engine === "mock"
-                          ? "DEVELOPMENT MOCK"
-                          : "Rule-based"}{" "}
+                        {item.engine === "openai"
+                          ? "OpenAI GPT · review required"
+                          : item.engine === "mock"
+                            ? "DEVELOPMENT MOCK"
+                            : "Rule-based"}{" "}
                         · {item.kind} ·{" "}
                         {item.is_current
                           ? "Current"
@@ -796,22 +854,16 @@ function Workspace({ organization }: { organization: string }) {
             corrections. Historical assignments are not migrated onto new
             analysis records.
           </p>
-          <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-slate-50 p-4 text-xs leading-6">
-            {JSON.stringify(
-              {
-                original: activeItem.original,
-                correction: activeItem.corrected,
-              },
-              null,
-              2,
-            )}
-          </pre>
+          <BusinessValues value={activeItem.original} />
+          {activeItem.corrected && (
+            <BusinessValues value={activeItem.corrected} corrected />
+          )}
+
           <div className="my-3 flex flex-wrap gap-2">
             {[
               ...activeItem.evidence,
               ...((activeItem.corrected?.evidence as
-                | Item["evidence"]
-                | undefined) ?? []),
+                Item["evidence"] | undefined) ?? []),
             ].map((source, index) => (
               <button
                 className="btn-secondary"
@@ -873,15 +925,16 @@ function Workspace({ organization }: { organization: string }) {
         </section>
       )}
       {evidence && (
-        <section className="panel p-5" aria-label="Source evidence">
-          <div className="flex justify-between">
-            <h3 className="font-semibold">{evidence.label}</h3>
-            <button onClick={() => setEvidence(null)}>Close evidence</button>
-          </div>
-          <blockquote className="mt-3 whitespace-pre-wrap text-sm leading-7">
-            {evidence.quote}
-          </blockquote>
-        </section>
+        <Dialog title="Evidence viewer" onClose={() => setEvidence(null)} wide>
+          <section aria-label="Source evidence" className="evidence-view">
+            <span className="evidence-label">ORIGINAL SOURCE PASSAGE</span>
+            <h3>{evidence.label}</h3>
+            <blockquote>{evidence.quote}</blockquote>
+            <button className="btn-secondary" onClick={() => setEvidence(null)}>
+              Close evidence
+            </button>
+          </section>
+        </Dialog>
       )}
     </div>
   );

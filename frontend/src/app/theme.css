@@ -1,0 +1,266 @@
+/* Shared appearance tokens; light remains defined in globals.css. */
+.theme-selector {
+  position: fixed;
+  right: 16px;
+  bottom: 12px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+}
+.theme-selector select {
+  background: transparent;
+  color: inherit;
+  max-width: 115px;
+}
+.theme-selector option {
+  background: var(--surface);
+  color: var(--ink);
+}
+body {
+  padding-bottom: 44px;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0e1320;
+  --surface: #171e2e;
+  --ink: #e9edf7;
+  --muted: #abb6cd;
+  --subtle: #abb6cd;
+  --line: #303b52;
+  --accent: #a99aff;
+  --shadow: 0 3px 16px rgb(0 0 0 / 20%);
+  --color-white: #171e2e;
+  --color-slate-50: #1b2435;
+  --color-slate-100: #232d41;
+  --color-slate-200: #35415a;
+  --color-slate-300: #8a99b6;
+  --color-slate-400: #a3b0ca;
+  --color-slate-500: #abb6cd;
+  --color-slate-600: #bec8de;
+  --color-slate-700: #d0d8e9;
+  --color-slate-800: #e1e6f1;
+  --color-slate-900: #eef1f8;
+  --color-indigo-50: #262442;
+  --color-indigo-100: #353054;
+  --color-indigo-200: #514775;
+  --color-indigo-500: #a99aff;
+  --color-indigo-600: #b7aaff;
+  --color-indigo-700: #c6bcff;
+  --color-indigo-800: #d6ceff;
+  --color-rose-50: #341f2c;
+  --color-rose-100: #542d3f;
+  --color-rose-600: #ffa0b3;
+  --color-rose-700: #ffb5c4;
+  --color-rose-800: #ffc0cd;
+  --color-amber-50: #332b1e;
+  --color-amber-100: #4e4027;
+  --color-amber-700: #f5cc80;
+  --color-amber-800: #f8d79c;
+  --color-emerald-50: #19332e;
+  --color-emerald-100: #254b40;
+  --color-emerald-600: #74dcb2;
+  --color-emerald-700: #91e5c3;
+  --color-emerald-800: #a3ebcf;
+}
+
+html[data-theme="dark"]
+  :is(
+    .app-sidebar,
+    .app-topbar,
+    .workspace-dialog,
+    .metric-card,
+    .icon-button,
+    .skip-link,
+    .chat-composer,
+    .composer-input,
+    .auth-layout,
+    .knowledge-map-center,
+    .knowledge-step,
+    .workspace-operations .workspace-content > div > nav
+  ) {
+  background: var(--surface);
+  color: var(--ink);
+}
+html[data-theme="dark"]
+  :is(
+    th,
+    tr:hover td,
+    .topbar-controls select,
+    .document-scope-search,
+    .question-starters button,
+    .source-chip,
+    .pipeline-stats > div,
+    .template-field,
+    .technical-details pre
+  ) {
+  background: #1d2638;
+  color: var(--ink);
+  border-color: var(--line);
+}
+html[data-theme="dark"]
+  :is(
+    .brand,
+    .topbar-breadcrumb strong,
+    .sidebar-note strong,
+    .business-values dd,
+    .assistant-welcome h3,
+    .answer-content,
+    .scope-file strong,
+    .composer-input textarea,
+    .search-evidence-card p,
+    .knowledge-step strong,
+    .knowledge-map-center strong,
+    .assistant-feature h2
+  ) {
+  color: var(--ink);
+}
+html[data-theme="dark"]
+  :is(
+    .nav-link,
+    .metric-top,
+    .section-label,
+    .comparison-explanation p,
+    .search-evidence-card > span,
+    .template-field legend
+  ) {
+  color: var(--muted);
+}
+html[data-theme="dark"]
+  :is(.brand-accent, .public-hero h1 span, .nav-link-active, .scope-index) {
+  color: #c0b2ff;
+}
+html[data-theme="dark"]
+  :is(
+    .nav-link:hover,
+    .nav-link-active,
+    .conversation-link:hover,
+    .conversation-active,
+    .scope-selected,
+    .question-row > p,
+    .citation-number,
+    .source-chip > span:first-child,
+    .file-tile,
+    .chat-icon,
+    .answer-avatar,
+    .empty-icon,
+    .metric-icon,
+    .activity-mark,
+    .user-avatar,
+    .nav-ai,
+    .onboarding-note
+  ) {
+  background: #2a2746;
+  color: #d1c5ff;
+  border-color: #4a4267;
+}
+html[data-theme="dark"] :is(.assistant-feature, .knowledge-map, .public-home) {
+  background: linear-gradient(130deg, #1a2033, #24203b);
+}
+html[data-theme="dark"] .welcome-spark {
+  background: #2a2746;
+  color: #c2b1ff;
+  box-shadow: 0 0 0 7px #1d2337;
+  border-color: #4a4267;
+}
+html[data-theme="dark"] .feature-orbit {
+  opacity: 0.12;
+}
+html[data-theme="dark"]
+  :is(.status-success, .values-corrected, .metric-green .metric-icon) {
+  color: #91e5c3;
+  background: #19332e;
+  border-color: #315b4d;
+}
+html[data-theme="dark"] :is(.status-danger, .error, .error-box) {
+  color: #ffb5c4;
+  background: #341f2c;
+  border-color: #653a4d;
+}
+html[data-theme="dark"]
+  :is(
+    .status-warning,
+    .mock-banner,
+    .review-disclaimer,
+    .metric-amber .metric-icon
+  ) {
+  color: #f5cc80;
+  background: #332b1e;
+  border-color: #665234;
+}
+html[data-theme="dark"] .status-neutral {
+  color: var(--muted);
+  background: #232d41;
+  border-color: var(--line);
+}
+html[data-theme="dark"] .metric-blue .metric-icon {
+  color: #a5c7ff;
+  background: #21304b;
+}
+html[data-theme="dark"]
+  :is(.evidence-view blockquote, .comparison-explanation) {
+  color: var(--ink);
+  background: #24223a;
+  border-color: #4a4267;
+}
+html[data-theme="dark"]
+  :is(
+    .business-values dl > div,
+    .activity-preview li,
+    .assistant-feature,
+    .source-chip,
+    .search-evidence-card,
+    .composer-input,
+    .document-scope-search,
+    .input
+  ) {
+  border-color: var(--line);
+}
+html[data-theme="dark"] .auth-form-area .input {
+  background: #1d2638;
+}
+html[data-theme="dark"]
+  .workspace-documents
+  section[aria-label="Upload documents"]
+  > div:first-child {
+  background: linear-gradient(110deg, #171e2e, #24223a);
+}
+html[data-theme="dark"] .skeleton {
+  background: linear-gradient(100deg, #232d41 20%, #35415a 50%, #232d41 80%);
+  background-size: 200% 100%;
+}
+html[data-theme="dark"]
+  :is(.btn-primary, .btn-danger, .brand-symbol, .feature-icon) {
+  color: #fff;
+}
+html[data-theme="dark"] .auth-story .brand {
+  color: #fff;
+}
+html[data-theme="dark"] .auth-story .brand-accent {
+  color: #c5b3fa;
+}
+html[data-theme="dark"] ::selection {
+  color: #fff;
+  background: #584985;
+}
+html[data-theme="dark"] :focus-visible {
+  outline-color: #c6b8ff;
+}
+@media (max-width: 540px) {
+  .theme-selector {
+    right: 10px;
+    bottom: 8px;
+  }
+  .theme-selector select {
+    font-size: 16px;
+    max-width: 132px;
+  }
+}

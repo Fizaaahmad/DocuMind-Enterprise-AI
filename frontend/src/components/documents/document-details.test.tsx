@@ -48,6 +48,9 @@ it("deletes with confirmation and refreshes the library", async () => {
   vi.spyOn(window, "confirm").mockReturnValue(true);
   render(<DocumentDetails {...props} canManage />);
   fireEvent.click(screen.getByRole("button", { name: "Delete document" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Confirm removal" }),
+  );
   await waitFor(() => expect(props.onClose).toHaveBeenCalled());
   expect(mockApi).toHaveBeenCalledWith(
     expect.stringContaining(exampleDocument.id),

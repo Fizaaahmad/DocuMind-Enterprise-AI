@@ -1,3 +1,2 @@
 "use client";
-
-export { default } from "../dashboard/error";
+export { WorkspaceError as default } from "../../components/workspace-error";

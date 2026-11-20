@@ -1,5 +1,13 @@
 # DocuMind
 
+## Phase 9: enterprise UI/UX
+
+The shared enterprise workspace now covers authentication, overview, documents,
+Knowledge Assistant, Intelligence, and Operations. See [Phase 9 setup and UI
+verification](docs/PHASE9.md) for local commands, browser checks, and manual
+acceptance steps. Existing APIs, authentication, provider settings, and local
+development workflow are preserved; no new migration is required.
+
 ## Phase 8: optional OpenAI document intelligence
 
 See [Phase 8 setup and controlled first test](docs/PHASE8.md) for the additive

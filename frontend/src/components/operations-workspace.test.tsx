@@ -133,11 +133,18 @@ it("drills into a metric without dropping active filters", async () => {
 it("searches document choices without leaving records in a loading state", async () => {
   render(<OperationsWorkspace />);
   await screen.findByText("Commitment candidate");
-  fireEvent.change(screen.getByLabelText("Find document by filename"), { target: { value: "Invoice" } });
-  await waitFor(() => expect(mocked).toHaveBeenCalledWith(
-    expect.stringContaining("/documents?page_size=50&q=Invoice"), expect.any(Object),
-  ));
-  expect(screen.getByRole("button", { name: "Export filtered CSV" })).toBeEnabled();
+  fireEvent.change(screen.getByLabelText("Find document by filename"), {
+    target: { value: "Invoice" },
+  });
+  await waitFor(() =>
+    expect(mocked).toHaveBeenCalledWith(
+      expect.stringContaining("/documents?page_size=50&q=Invoice"),
+      expect.any(Object),
+    ),
+  );
+  expect(
+    screen.getByRole("button", { name: "Export filtered CSV" }),
+  ).toBeEnabled();
 });
 
 it("sends assignment versions and displays conflicts", async () => {
@@ -201,4 +208,27 @@ it("clears inspected evidence when switching organizations", async () => {
     ),
   );
   expect(screen.queryByLabelText("Source evidence")).not.toBeInTheDocument();
+});
+
+it("opens dashboard drilldowns with the same engine, focus and review scope", async () => {
+  render(
+    <OperationsWorkspace
+      initialView="reviews"
+      initialFocus="pending_reviews"
+      initialEngine="all"
+    />,
+  );
+  await waitFor(() =>
+    expect(mocked).toHaveBeenCalledWith(expect.stringContaining("engine=all")),
+  );
+  const call = mocked.mock.calls.find(([path]) =>
+    path.includes("/operations/items?"),
+  );
+  const query = new URLSearchParams(call![0].split("?")[1]);
+  expect(query.get("focus")).toBe("pending_reviews");
+  expect(query.get("kind")).toBe("review");
+  expect(screen.getByRole("button", { name: "Review queue" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 });

@@ -1,6 +1,8 @@
 import { Dashboard } from "../../components/dashboard";
 import { requireUser } from "../../lib/server-auth";
 
+export const metadata = { title: "Workspace overview" };
+
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {

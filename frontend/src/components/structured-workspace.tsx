@@ -1,9 +1,13 @@
 "use client";
 
-import Link from "next/link";
+import { TemplateDesigner } from "./template-designer";
+import { UsageDetails } from "./answer-text";
+import { BusinessValues, Dialog, StatusBadge } from "./ui";
+import { WorkspaceShell } from "./workspace-shell";
+import { preferredOrganization } from "../lib/organization-preference";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, apiResponse } from "../lib/api";
-import type { Organization } from "../lib/types";
+import type { Organization, User } from "../lib/types";
 
 type Document = { id: string; filename: string; status: string };
 type Revision = { id: string; created_at: string; current: boolean };
@@ -119,10 +123,12 @@ const example = {
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 
 export function StructuredWorkspace({
+  user,
   initialOrganization = "",
   initialRun = "",
   initialItem = "",
 }: {
+  user?: User;
   initialOrganization?: string;
   initialRun?: string;
   initialItem?: string;
@@ -137,9 +143,7 @@ export function StructuredWorkspace({
         if (active) {
           setOrganizations(items);
           setSelected(
-            items.find((item) => item.id === initialOrganization)?.id ??
-              items[0]?.id ??
-              "",
+            preferredOrganization(items, initialOrganization || undefined),
           );
         }
       })
@@ -151,47 +155,40 @@ export function StructuredWorkspace({
     };
   }, [initialOrganization]);
   return (
-    <main className="mx-auto max-w-7xl p-4 sm:p-8">
-      <header className="mb-7 flex flex-wrap justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold text-indigo-600">
-            DOCUMIND / STRUCTURED INTELLIGENCE
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold">Document intelligence</h1>
-          <p className="mt-2 text-slate-500">
-            Turn source passages into traceable, reviewable information.
-          </p>
-        </div>
-        <nav className="flex gap-4 text-sm text-indigo-700">
-          <Link href="/dashboard">Dashboard</Link>
-          <Link href="/documents">Documents</Link>
-          <Link href="/assistant">Assistant</Link>
-        </nav>
-      </header>
-      <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        Deterministic extraction and rule-based review candidates. Mock runs are
-        development simulations. Findings are not legal or compliance
-        conclusions.
+    <WorkspaceShell
+      user={user}
+      active="intelligence"
+      title="Document intelligence"
+      description="From document complexity to structured, reviewable insight."
+      organizationId={selected}
+      organizationSelector={
+        <label className="mb-6 block max-w-sm text-sm font-medium">
+          Organization
+          <select
+            className="input mt-2"
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+          >
+            {organizations.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      }
+    >
+      <p className="review-disclaimer">
+        Evidence-backed extraction and review candidates. GPT analysis requires
+        human verification; development mock results are simulations. Findings
+        are not legal or compliance conclusions.
       </p>
       {error && (
         <p role="alert" className="error">
           {error}
         </p>
       )}
-      <label className="mb-6 block max-w-sm text-sm font-medium">
-        Organization
-        <select
-          className="input mt-2"
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-        >
-          {organizations.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </select>
-      </label>
+
       {selected ? (
         <Workspace
           key={selected}
@@ -211,7 +208,7 @@ export function StructuredWorkspace({
       ) : (
         <p>Create an organization to begin.</p>
       )}
-    </main>
+    </WorkspaceShell>
   );
 }
 
@@ -368,7 +365,7 @@ function Workspace({
     });
   }
   return (
-    <div className="grid gap-6 lg:grid-cols-[290px_1fr]">
+    <div className="intelligence-grid">
       <aside className="space-y-5">
         <section className="panel space-y-3 p-5">
           <h2 className="font-semibold">New analysis</h2>
@@ -474,16 +471,27 @@ function Workspace({
                     Deterministic / rule-based
                   </option>
                   <option value="mock">Development mock simulation</option>
-                  <option value="openai">OpenAI GPT · human review required</option>
+                  <option value="openai">
+                    OpenAI GPT · human review required
+                  </option>
                 </select>
               </label>
             </>
           )}
           {mode === "compare" && (
-            <label className="block text-sm">Comparison engine
-              <select className="input mt-1" value={engine} onChange={(e) => setEngine(e.target.value)}>
-                <option value="deterministic">Deterministic text differences</option>
-                <option value="openai">Text differences + GPT explanations</option>
+            <label className="block text-sm">
+              Comparison engine
+              <select
+                className="input mt-1"
+                value={engine}
+                onChange={(e) => setEngine(e.target.value)}
+              >
+                <option value="deterministic">
+                  Deterministic text differences
+                </option>
+                <option value="openai">
+                  Text differences + GPT explanations
+                </option>
               </select>
             </label>
           )}
@@ -528,10 +536,21 @@ function Workspace({
               >
                 <span className="font-medium">
                   {r.mode === "compare" ? "Comparison" : "Extraction"} ·{" "}
-                  {r.id.slice(0, 6)}
+                  {r.created_at
+                    ? new Date(r.created_at).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : r.id.slice(0, 6)}
                 </span>
                 <br />
-                {r.engine === "openai" ? "GPT review candidates · " : r.engine === "mock" ? "MOCK · " : "Rule-based · "}
+                {r.engine === "openai"
+                  ? "GPT review candidates · "
+                  : r.engine === "mock"
+                    ? "MOCK · "
+                    : "Rule-based · "}
                 {r.state}
               </button>
             ))}
@@ -581,12 +600,7 @@ function Workspace({
                 </option>
               ))}
             </select>
-            <textarea
-              aria-label="Template JSON"
-              className="input min-h-80 font-mono text-xs"
-              value={definition}
-              onChange={(e) => setDefinition(e.target.value)}
-            />
+            <TemplateDesigner value={definition} onChange={setDefinition} />
             <button
               className="btn-primary"
               disabled={busy}
@@ -648,13 +662,7 @@ function Workspace({
                   </button>
                 </div>
               </div>
-              {detail.usage && (
-                <p className="mt-2 text-xs text-slate-500">
-                  {detail.usage.model} · Input {detail.usage.input_tokens ?? "unknown"} / output{" "}
-                  {detail.usage.output_tokens ?? "unknown"} tokens · Estimated USD{" "}
-                  {detail.usage.estimated_cost_usd ?? "unknown"}
-                </p>
-              )}
+              {detail.usage && <UsageDetails usage={detail.usage} />}
               {detail.superseded && (
                 <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
                   Historical revision — newer extraction exists. Reviewed values
@@ -680,9 +688,12 @@ function Workspace({
                 </button>
               )}
               <p className="mt-3 text-xs text-slate-500">
-                Coverage: {pretty(detail.run.coverage)}. Sources:{" "}
-                {detail.sources.map((s) => s.filename).join(" / ")}
+                Sources: {detail.sources.map((s) => s.filename).join(" / ")}
               </p>
+              <details className="technical-details">
+                <summary>Processing coverage & technical details</summary>
+                <pre>{pretty(detail.run.coverage)}</pre>
+              </details>
             </section>
             <nav
               className="flex flex-wrap gap-2"
@@ -696,6 +707,7 @@ function Workspace({
               ].map(([key, label]) => (
                 <button
                   key={key}
+                  aria-pressed={tab === key}
                   className={tab === key ? "btn-primary" : "btn-secondary"}
                   onClick={() => setTab(key)}
                 >
@@ -718,9 +730,13 @@ function Workspace({
                   key={item.id}
                 >
                   <div className="flex flex-wrap justify-between gap-2">
-                    <h3 className="font-semibold">{item.name}</h3>
+                    <h3 className="font-semibold record-name">
+                      {item.name.replaceAll("_", " ")}
+                    </h3>
                     <span className="text-xs text-slate-500">
-                      {item.validation} · {item.review_status} · v{item.version}
+                      <StatusBadge value={item.validation} />{" "}
+                      <StatusBadge value={item.review_status} /> · v
+                      {item.version}
                     </span>
                   </div>
                   {item.kind === "change" ? (
@@ -747,26 +763,30 @@ function Workspace({
                       </div>
                     </div>
                   ) : (
-                    <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-4 text-xs leading-6">
-                      {pretty(item.original)}
-                    </pre>
+                    <BusinessValues value={item.original} />
                   )}
+                  {item.kind === "change" &&
+                    item.original.ai_explanation != null && (
+                      <div className="comparison-explanation">
+                        <span className="badge">
+                          GPT interpretation · review required
+                        </span>
+                        <p>{String(item.original.ai_explanation)}</p>
+                      </div>
+                    )}
                   {item.corrected && (
                     <div className="mt-3">
                       <p className="text-xs font-semibold">
                         REVIEWER CORRECTION (original preserved)
                       </p>
-                      <pre className="mt-2 whitespace-pre-wrap text-xs">
-                        {pretty(item.corrected)}
-                      </pre>
+                      <BusinessValues value={item.corrected} corrected />
                     </div>
                   )}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {[
                       ...item.evidence,
                       ...((item.corrected?.evidence as
-                        | Evidence[]
-                        | undefined) ?? []),
+                        Evidence[] | undefined) ?? []),
                     ].map((e, i) => (
                       <button
                         key={i}
@@ -855,20 +875,27 @@ function Workspace({
           </>
         )}
         {evidence && (
-          <section
-            className="panel border-indigo-200 p-5"
-            aria-label="Source evidence"
+          <Dialog
+            title="Evidence viewer"
+            onClose={() => setEvidence(null)}
+            wide
           >
-            <div className="flex justify-between">
-              <h3 className="font-semibold">
-                {evidence.label} · revision {evidence.revision_id.slice(0, 8)}
-              </h3>
-              <button onClick={() => setEvidence(null)}>Close</button>
-            </div>
-            <blockquote className="mt-3 whitespace-pre-wrap text-sm leading-7">
-              {evidence.quote}
-            </blockquote>
-          </section>
+            <section aria-label="Source evidence" className="evidence-view">
+              <span className="evidence-label">ORIGINAL REVISION PASSAGE</span>
+              <h3>{evidence.label}</h3>
+              <p className="evidence-location">
+                {evidence.page_number ? `Page ${evidence.page_number} · ` : ""}
+                Revision {evidence.revision_id.slice(0, 8)}
+              </p>
+              <blockquote>{evidence.quote}</blockquote>
+              <button
+                className="btn-secondary"
+                onClick={() => setEvidence(null)}
+              >
+                Close
+              </button>
+            </section>
+          </Dialog>
         )}
       </div>
     </div>

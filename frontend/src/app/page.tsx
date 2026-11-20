@@ -1,50 +1,137 @@
 import Link from "next/link";
 import { SystemStatus } from "../components/system-status";
+import { Brand, Icon } from "../components/ui";
 
 export default function Home() {
   return (
-    <div className="min-h-screen text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
-          <Link
-            href="/"
-            className="flex items-center gap-3 text-xl font-bold tracking-tight"
-          >
-            <span
-              aria-hidden="true"
-              className="grid h-9 w-9 place-items-center rounded-lg bg-indigo-600 text-lg text-white"
-            >
-              D
-            </span>
-            DocuMind
+    <div className="public-home">
+      <header className="public-header">
+        <Link href="/" aria-label="DocuMind home">
+          <Brand />
+        </Link>
+        <nav aria-label="Public navigation">
+          <a href="#system-status" className="public-status-link">
+            System status
+          </a>
+          <Link href="/login" className="btn-secondary">
+            Sign in
           </Link>
-          <div className="flex items-center gap-3">
-            <Link className="text-sm font-medium text-slate-600" href="/login">
-              Sign in
-            </Link>
-            <Link className="btn-primary" href="/dashboard">
-              Workspace
-            </Link>
-          </div>
-        </div>
+          <Link href="/dashboard" className="btn-primary">
+            Open workspace <Icon name="arrow" />
+          </Link>
+        </nav>
       </header>
-      <main className="mx-auto max-w-5xl px-6 py-12 sm:py-16">
-        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-600">
-          Development workspace
-        </p>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">
-          Your foundation, connected.
-        </h1>
-        <p className="mb-10 mt-4 max-w-2xl leading-7 text-slate-500">
-          The starting point for document intelligence. Check the services
-          powering your DocuMind workspace before building the next layer.
-        </p>
-        <SystemStatus />
-        <div className="mt-8 flex flex-wrap justify-between gap-3 text-xs text-slate-500">
-          <p>Next.js + FastAPI + PostgreSQL</p>
-          <p>Secure organizations and team access · Phase 2</p>
-        </div>
+      <main>
+        <section className="public-hero">
+          <div>
+            <p className="eyebrow">ENTERPRISE DOCUMENT INTELLIGENCE</p>
+            <h1>
+              Your knowledge.
+              <br />
+              <span>Your next advantage.</span>
+            </h1>
+            <p>
+              Turn complex documents into grounded answers, clear insights and
+              accountable action. One workspace for the information your
+              business runs on.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Link href="/signup" className="btn-primary">
+                Create your workspace <Icon name="arrow" />
+              </Link>
+              <Link href="/login" className="btn-secondary">
+                Sign in to DocuMind
+              </Link>
+            </div>
+            <p className="public-hero-note">
+              <Icon name="shield" />
+              Source-grounded intelligence. Human-reviewed decisions.
+            </p>
+          </div>
+          <div
+            className="knowledge-map"
+            aria-label="Document intelligence workflow"
+          >
+            <div className="knowledge-map-center">
+              <Brand compact />
+              <strong>Connected knowledge</strong>
+              <span>Your documents, working together</span>
+            </div>
+            {[
+              {
+                icon: "documents" as const,
+                title: "Collect",
+                text: "PDF, DOCX & text",
+              },
+              {
+                icon: "assistant" as const,
+                title: "Understand",
+                text: "Answers with evidence",
+              },
+              {
+                icon: "intelligence" as const,
+                title: "Review",
+                text: "Facts, risks & obligations",
+              },
+              {
+                icon: "operations" as const,
+                title: "Act",
+                text: "Ownership & follow-through",
+              },
+            ].map((step, i) => (
+              <div className={`knowledge-step step-${i}`} key={step.title}>
+                <Icon name={step.icon} />
+                <span>
+                  <strong>{step.title}</strong>
+                  <small>{step.text}</small>
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section
+          className="public-value-grid"
+          aria-label="Platform capabilities"
+        >
+          <article>
+            <Icon name="quote" />
+            <h2>Trust the evidence</h2>
+            <p>
+              Trace answers and findings to their original document passages.
+            </p>
+          </article>
+          <article>
+            <Icon name="intelligence" />
+            <h2>See the important details</h2>
+            <p>
+              Review structured fields, document changes and potential risks in
+              context.
+            </p>
+          </article>
+          <article>
+            <Icon name="operations" />
+            <h2>Keep work moving</h2>
+            <p>
+              Bring obligations, reviews and accountability into one
+              organization workspace.
+            </p>
+          </article>
+        </section>
+        <section id="system-status" className="public-system">
+          <div>
+            <p className="eyebrow">PLATFORM AVAILABILITY</p>
+            <h2>A clear view of your services.</h2>
+            <p>
+              Live connectivity checks for the services behind your workspace.
+            </p>
+          </div>
+          <SystemStatus />
+        </section>
       </main>
+      <footer className="public-footer">
+        <Brand />
+        <span>Document intelligence & operations · Built for teams</span>
+      </footer>
     </div>
   );
 }

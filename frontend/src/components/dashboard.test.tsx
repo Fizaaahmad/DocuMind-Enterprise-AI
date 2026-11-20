@@ -120,13 +120,26 @@ it("clears an organization after the current user removes their own membership",
   let removed = false;
   vi.spyOn(window, "confirm").mockReturnValue(true);
   mockApi.mockImplementation(async (path, init) => {
-    if (init?.method === "DELETE") { removed = true; return undefined; }
-    if (path === "/organizations") return removed ? [] : [{ id: "org", name: "Research", role: "admin" }];
-    return [{ user_id: user.id, name: user.name, email: user.email, role: "admin" }];
+    if (init?.method === "DELETE") {
+      removed = true;
+      return undefined;
+    }
+    if (path === "/organizations")
+      return removed ? [] : [{ id: "org", name: "Research", role: "admin" }];
+    return [
+      { user_id: user.id, name: user.name, email: user.email, role: "admin" },
+    ];
   });
   render(<Dashboard user={user} />);
   fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
-  await waitFor(() => expect(screen.queryByLabelText("Active organization")).not.toBeInTheDocument());
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Confirm removal" }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByLabelText("Active organization"),
+    ).not.toBeInTheDocument(),
+  );
   expect(screen.getByText("Member removed.")).toBeInTheDocument();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });

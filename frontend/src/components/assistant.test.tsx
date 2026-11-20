@@ -55,7 +55,14 @@ beforeEach(() => {
               state: "completed",
               is_mock: !gpt,
               provider: gpt ? "openai" : "mock",
-              usage: gpt ? { model: "offline-model", input_tokens: 100, output_tokens: 20, estimated_cost_usd: "0.001" } : null,
+              usage: gpt
+                ? {
+                    model: "offline-model",
+                    input_tokens: 100,
+                    output_tokens: 20,
+                    estimated_cost_usd: "0.001",
+                  }
+                : null,
               citations: [{ ...source, quote: source.text }],
             },
           ];
@@ -68,12 +75,24 @@ describe("Assistant", () => {
     gpt = true;
     render(<Assistant />);
     await screen.findByRole("button", { name: "Ask assistant" });
-    fireEvent.change(screen.getByLabelText("Ask your documents"), { target: { value: "Leave?" } });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Ask assistant" })).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("Ask your documents"), {
+      target: { value: "Leave?" },
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Ask assistant" }),
+      ).toBeEnabled(),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
-    expect(await screen.findByText(/OpenAI GPT · verify source evidence/)).toBeInTheDocument();
-    expect(screen.getByText(/offline-model · Input 100 \/ output 20 tokens/)).toBeInTheDocument();
-    expect(screen.queryByText(/Development mock — extractive preview/)).not.toBeInTheDocument();
+    expect(
+      await screen.findByText(/OpenAI GPT · verify source evidence/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/offline-model · Input 100 \/ output 20 tokens/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Development mock — extractive preview/),
+    ).not.toBeInTheDocument();
   });
   it("labels mock responses and opens exact search passages", async () => {
     render(<Assistant />);
@@ -107,7 +126,10 @@ describe("Assistant", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Preview mock answer" }),
     );
-    await screen.findByText("Annual leave is twenty days. [1]");
+    await screen.findByRole("button", { name: "Inspect source 1" });
+    expect(
+      screen.getByText(/Annual leave is twenty days\./),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/Development mock · extractive preview/),
     ).toBeInTheDocument();
