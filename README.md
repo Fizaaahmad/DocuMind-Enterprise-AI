@@ -1,5 +1,13 @@
 # DocuMind
 
+## Phase 8: optional OpenAI document intelligence
+
+See [Phase 8 setup and controlled first test](docs/PHASE8.md) for the additive
+`0007_provider_requests` migration, explicit enable flags, secure key setup,
+budgets, grounded GPT answers, structured analysis and production outbound access.
+OpenAI remains disabled by default; deterministic/mock workflows remain available.
+Automated verification uses mocked responses and makes no paid API requests.
+
 ## Phase 7: production readiness
 
 Production uses the separate [production Compose file](compose.production.yaml).
@@ -364,11 +372,12 @@ PostgreSQL indexing stage, private organization-bound conversations, and an
 assistant at **http://localhost:3000/assistant**. Existing health, authentication,
 organization, document, and OCR features remain available.
 
-The only answer provider currently implemented is a **development mock**. It
+Phase 4's offline answer provider is a **development mock**. It
 selects exact retrieved passages, makes no API calls, and is labeled in the UI
 and every stored response. It is an extractive preview, not generative AI or a
 claim that the question was answered. Production rejects the mock provider.
-No Claude, Ollama, OpenAI, Gemini, or provider SDK is required.
+No paid provider or provider SDK is required for this workflow. Phase 8 adds
+optional OpenAI synthesis; see [the Phase 8 guide](docs/PHASE8.md).
 
 ### Windows setup and startup
 

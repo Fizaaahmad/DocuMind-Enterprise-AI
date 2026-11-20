@@ -345,6 +345,7 @@ function Workspace({ organization }: { organization: string }) {
             options={[
               ["deterministic", "Deterministic only"],
               ["mock", "DEVELOPMENT MOCK only"],
+              ["openai", "OpenAI GPT review candidates"],
               ["all", "All engines (separate records)"],
             ]}
             onChange={(value) => change("engine", value)}
@@ -612,7 +613,7 @@ function Workspace({ organization }: { organization: string }) {
               <p className="mt-1 text-xs text-slate-500">
                 {event.engine === "mock"
                   ? "DEVELOPMENT MOCK record"
-                  : "Rule-based record"}
+                  : event.engine === "openai" ? "OpenAI GPT review candidate" : "Rule-based record"}
               </p>
               <p className="mt-1 text-xs text-slate-500">
                 {event.created_at} · {event.reason}
@@ -695,7 +696,7 @@ function Workspace({ organization }: { organization: string }) {
                         {item.filename} · {item.template_name}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
-                        {item.engine === "mock"
+                        {item.engine === "openai" ? "OpenAI GPT · review required" : item.engine === "mock"
                           ? "DEVELOPMENT MOCK"
                           : "Rule-based"}{" "}
                         · {item.kind} ·{" "}

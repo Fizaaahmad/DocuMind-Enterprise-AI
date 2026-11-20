@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import current_user, get_db
 from app.core.security import now
 from app.documents.service import can_manage, find_document
+from app.intelligence.provider_usage import usage_for
 from app.models import (
     AnalysisItem,
     AnalysisRun,
@@ -146,6 +147,15 @@ def submit(
     db: Session = Depends(get_db),
 ):
     membership(db, organization_id, user)
+    if body.engine == "openai":
+        from app.intelligence.providers import ProviderUnavailable, get_provider
+
+        try:
+            provider = get_provider(request.app.state.settings)
+            if request.app.state.settings.llm_provider != "openai" or provider.is_mock:
+                raise ProviderUnavailable("Select and enable the OpenAI provider first")
+        except ProviderUnavailable as exc:
+            raise HTTPException(503, str(exc)) from None
     if body.engine == "mock" and (
         request.app.state.settings.environment != "development"
         or request.app.state.settings.llm_provider != "mock"
@@ -166,9 +176,9 @@ def submit(
     left = selected_revision(db, organization_id, body.document_id, body.revision_id, user)
     right = None
     if body.mode == "compare":
-        if not body.other_document_id or body.engine != "deterministic":
+        if not body.other_document_id or body.engine not in {"deterministic", "openai"}:
             raise HTTPException(
-                422, "Comparison requires a second document and deterministic engine"
+                422, "Comparison requires a second document and deterministic or OpenAI engine"
             )
         right = selected_revision(
             db, organization_id, body.other_document_id, body.other_revision_id, user
@@ -256,6 +266,7 @@ def result(
     ]
     return {
         "run": run,
+        "usage": usage_for(db, organization_id, f"analysis:{run.id}:{run.provider_generation}"),
         "items": encoded_items,
         "reviews": events,
         "superseded": any(not r.current for r in revisions)
@@ -302,6 +313,7 @@ def retry(
     if run.state != "failed":
         raise HTTPException(409, "Only failed analyses can be retried")
     run.state, run.error, run.attempts, run.available_at = "pending", None, 0, now()
+    run.provider_generation += 1
     run.lease_token = run.lease_until = None
     db.commit()
     return {"state": "pending"}

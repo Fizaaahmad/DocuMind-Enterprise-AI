@@ -1,12 +1,14 @@
-"""Provider contract: evidence selection, never trusted source metadata or claims.
+"""Provider contracts. Generated claims and evidence remain untrusted until validated.
 
-Future generative adapters must add a grounding validator before paraphrased
-claims can be published. Current output is deliberately extractive: every
-published claim is an exact authorized source passage.
+Mock output is extractive; optional synthesis carries exact supporting references.
+Authorization, citation metadata and business validation belong to the application.
 """
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from app.intelligence.contracts import Analysis
 
 from app.core.config import Settings
 
@@ -40,6 +42,8 @@ class Evidence:
 class SupportedClaim:
     source_id: str
     quote: str
+    text: str | None = None
+    additional: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,12 @@ class StructuredProvider(Protocol):
     def extract_fields(
         self, fields: list[dict], evidence: list[Evidence], settings: GenerationSettings
     ) -> list[StructuredCandidate]: ...
+
+
+class StructuredAnalysisProvider(Protocol):
+    """Optional provider-neutral structured analysis capability."""
+
+    def analyze(self, data: dict) -> "Analysis": ...
 
 
 @dataclass(frozen=True)
@@ -115,6 +125,14 @@ PROVIDERS: dict[str, type[LLMProvider]] = {"mock": MockProvider}
 
 
 def get_provider(settings: Settings) -> LLMProvider:
+    if settings.llm_provider == "openai":
+        from app.intelligence.openai_provider import OpenAIProvider
+
+        if not settings.llm_real_requests_enabled:
+            raise ProviderUnavailable(
+                "OpenAI is disabled; explicitly enable real provider requests"
+            )
+        return OpenAIProvider(settings)
     factory = PROVIDERS.get(settings.llm_provider)
     if factory is None:
         raise ProviderUnavailable(

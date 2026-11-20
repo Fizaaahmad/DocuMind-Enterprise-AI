@@ -36,6 +36,7 @@ const item = {
 };
 
 beforeEach(() => {
+  run.engine = "deterministic";
   manage = true;
   failure = false;
   mocked.mockReset();
@@ -73,6 +74,7 @@ beforeEach(() => {
     }
     if (path.endsWith("/runs/run123"))
       return {
+        usage: run.engine === "openai" ? { model: "offline-model", input_tokens: 100, output_tokens: 20, estimated_cost_usd: "0.001" } : null,
         run,
         items: [item],
         reviews: [],
@@ -82,6 +84,15 @@ beforeEach(() => {
       };
     return {};
   });
+});
+
+it("labels GPT results for human review and displays measured usage", async () => {
+  run.engine = "openai";
+  render(<StructuredWorkspace />);
+  fireEvent.click(await screen.findByRole("button", { name: /Extraction · run123/ }));
+  expect(await screen.findByText(/OpenAI GPT — review candidates/)).toBeInTheDocument();
+  expect(screen.getByText(/offline-model · Input 100 \/ output 20 tokens/)).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: /OpenAI GPT · human review required/ })).toBeInTheDocument();
 });
 
 it("shows deterministic provenance and exact evidence", async () => {

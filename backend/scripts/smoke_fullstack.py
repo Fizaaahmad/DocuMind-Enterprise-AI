@@ -290,7 +290,10 @@ def structured(alice, bob, org, document_id):
             if data["run"]["state"] in {"completed", "failed"}:
                 break
             time.sleep(0.3)
-        assert data["run"]["state"] == "completed", "Structured worker did not publish results"
+        assert data["run"]["state"] == "completed", (
+            "Structured worker did not publish results: "
+            f"state={data['run']['state']}, error={data['run'].get('error')}"
+        )
         return run_id, data
 
     run_id, data = finish({"document_id": document_id, "template_id": template_id})

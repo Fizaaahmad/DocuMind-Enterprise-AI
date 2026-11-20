@@ -4,7 +4,17 @@ import uuid
 from datetime import date, datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Date, DateTime, ForeignKey, ForeignKeyConstraint, Index, String, Text, func
+from sqlalchemy import (
+    Date,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Numeric,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -65,4 +75,27 @@ class Message(Base):
     provider: Mapped[str] = mapped_column(String(100))
     is_mock: Mapped[bool] = mapped_column(default=False)
     citations: Mapped[list] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProviderRequest(Base):
+    """No prompts/credentials. Cached output is source-bearing and redacted on deletion."""
+
+    __tablename__ = "provider_requests"
+    __table_args__ = (Index("ix_provider_requests_budget", "organization_id", "created_at"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    operation_key: Mapped[str] = mapped_column(String(180), unique=True)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    model: Mapped[str] = mapped_column(String(100))
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    document_ids: Mapped[list] = mapped_column(JSONB)
+    state: Mapped[str] = mapped_column(String(20), default="started")
+    attempts: Mapped[int] = mapped_column(default=0)
+    reserved_tokens: Mapped[int] = mapped_column()
+    reserved_cost: Mapped[float] = mapped_column(Numeric(16, 8))
+    input_tokens: Mapped[int | None] = mapped_column()
+    output_tokens: Mapped[int | None] = mapped_column()
+    estimated_cost: Mapped[float | None] = mapped_column(Numeric(16, 8))
+    response: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

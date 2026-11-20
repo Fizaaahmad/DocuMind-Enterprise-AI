@@ -94,6 +94,7 @@ class AnalysisRun(Base):
     template_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("analysis_templates.id"))
     mode: Mapped[str] = mapped_column(String(20))
     engine: Mapped[str] = mapped_column(String(20))
+    provider_generation: Mapped[int] = mapped_column(default=0, server_default="0")
     state: Mapped[str] = mapped_column(String(20), default="pending")
     error: Mapped[str | None] = mapped_column(String(500))
     coverage: Mapped[dict] = mapped_column(JSONB, default=dict)

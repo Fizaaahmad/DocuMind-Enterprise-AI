@@ -22,6 +22,13 @@ type Message = {
   state: string;
   citations: Source[];
   is_mock: boolean;
+  provider?: string;
+  usage?: {
+    model: string;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    estimated_cost_usd: string | null;
+  } | null;
 };
 type Conversation = { id: string; title: string };
 type Status = {
@@ -376,12 +383,21 @@ function Workspace({ organization }: { organization: string }) {
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 {m.is_mock
                   ? "Development mock · extractive preview"
-                  : "Assistant"}{" "}
+                  : m.provider === "openai"
+                    ? "OpenAI GPT · verify source evidence"
+                    : "Assistant"}{" "}
                 · {m.state}
               </p>
               <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">
                 {m.answer}
               </p>
+              {m.usage && (
+                <p className="text-xs text-slate-500">
+                  {m.usage.model} · Input {m.usage.input_tokens ?? "unknown"} / output{" "}
+                  {m.usage.output_tokens ?? "unknown"} tokens · Estimated USD{" "}
+                  {m.usage.estimated_cost_usd ?? "unknown"}
+                </p>
+              )}
               <div className="flex flex-wrap gap-2">
                 {m.citations.map((s, i) => (
                   <button

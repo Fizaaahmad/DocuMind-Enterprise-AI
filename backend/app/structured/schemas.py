@@ -61,7 +61,7 @@ class RunInput(BaseModel):
     other_revision_id: uuid.UUID | None = None
     template_id: uuid.UUID | None = None
     mode: Literal["extract", "compare"] = "extract"
-    engine: Literal["deterministic", "mock"] = "deterministic"
+    engine: Literal["deterministic", "mock", "openai"] = "deterministic"
 
 
 class EvidenceInput(BaseModel):

@@ -11,10 +11,19 @@ from app.core.security import now
 from app.documents.service import can_manage, find_document
 from app.intelligence.embeddings import EmbeddingUnavailable, profile
 from app.intelligence.indexing import enqueue
+from app.intelligence.provider_usage import provider_scope, usage_for
 from app.intelligence.providers import ProviderUnavailable, get_provider
 from app.intelligence.rag import answer
 from app.intelligence.retrieval import retrieve, validate_selection
-from app.models import AIUsage, Conversation, Document, DocumentChunk, Message, User
+from app.models import (
+    AIUsage,
+    Conversation,
+    Document,
+    DocumentChunk,
+    Message,
+    ProviderRequest,
+    User,
+)
 from app.services.organizations import membership
 
 router = APIRouter(prefix="/organizations/{organization_id}/intelligence", tags=["intelligence"])
@@ -78,6 +87,8 @@ def output(db, org, item):
         "answer": item.answer if valid else "Source documents changed or were deleted; ask again.",
         "citations": item.citations if valid else [],
         "is_mock": item.is_mock,
+        "provider": item.provider,
+        "usage": usage_for(db, org, f"message:{item.id}"),
         "created_at": item.created_at,
     }
 
@@ -104,6 +115,8 @@ def status(
         "embeddings_enabled": settings.embeddings_enabled,
         "provider": settings.llm_provider,
         "is_mock": settings.llm_provider == "mock",
+        "real_requests_enabled": settings.llm_real_requests_enabled,
+        "model": settings.llm_model if settings.llm_provider == "openai" else None,
         "documents": [
             {
                 "id": d.id,
@@ -192,7 +205,18 @@ def remove(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
-    db.delete(owned(db, organization_id, user, conversation_id, lock=True))
+    conversation = owned(db, organization_id, user, conversation_id, lock=True)
+    ids = db.scalars(select(Message.id).where(Message.conversation_id == conversation_id)).all()
+    for row in db.scalars(
+        select(ProviderRequest)
+        .where(
+            ProviderRequest.organization_id == organization_id,
+            ProviderRequest.operation_key.in_([f"message:{identity}" for identity in ids]),
+        )
+        .with_for_update()
+    ):
+        row.response, row.state = None, "redacted"
+    db.delete(conversation)
     db.commit()
     return {"status": "deleted"}
 
@@ -266,7 +290,14 @@ def ask(
     prior = [(m.question, "") for m in reversed(previous) if m.state == "completed"]
     db.commit()  # no locks held during model/provider inference
     try:
-        text, citations = answer(provider, settings, body.question, prior, sources)
+        with provider_scope(
+            db.get_bind(),
+            organization_id,
+            user.id,
+            f"message:{item_id}",
+            {s["document_id"] for s in sources},
+        ):
+            text, citations = answer(provider, settings, body.question, prior, sources)
     except ProviderUnavailable as exc:
         item = db.get(Message, item_id)
         if item:

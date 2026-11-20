@@ -56,6 +56,12 @@ type Review = {
 };
 type Detail = {
   run: Run;
+  usage?: {
+    model: string;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    estimated_cost_usd: string | null;
+  } | null;
   items: Item[];
   reviews: Review[];
   superseded: boolean;
@@ -338,7 +344,7 @@ function Workspace({
           other_revision_id: rightRevision || null,
           template_id: mode === "extract" ? template : null,
           mode,
-          engine: mode === "compare" ? "deterministic" : engine,
+          engine,
         }),
       });
       setDetail(null);
@@ -468,9 +474,18 @@ function Workspace({
                     Deterministic / rule-based
                   </option>
                   <option value="mock">Development mock simulation</option>
+                  <option value="openai">OpenAI GPT · human review required</option>
                 </select>
               </label>
             </>
+          )}
+          {mode === "compare" && (
+            <label className="block text-sm">Comparison engine
+              <select className="input mt-1" value={engine} onChange={(e) => setEngine(e.target.value)}>
+                <option value="deterministic">Deterministic text differences</option>
+                <option value="openai">Text differences + GPT explanations</option>
+              </select>
+            </label>
           )}
           <p className="text-xs text-slate-500">
             Uploader/Admin permission is required for each source. Analysis
@@ -516,7 +531,7 @@ function Workspace({
                   {r.id.slice(0, 6)}
                 </span>
                 <br />
-                {r.engine === "mock" ? "MOCK · " : "Rule-based · "}
+                {r.engine === "openai" ? "GPT review candidates · " : r.engine === "mock" ? "MOCK · " : "Rule-based · "}
                 {r.state}
               </button>
             ))}
@@ -608,7 +623,9 @@ function Workspace({
                   <p className="mt-1 text-sm text-slate-500">
                     {detail.run.engine === "mock"
                       ? "DEVELOPMENT MOCK — simulated extraction"
-                      : "Deterministic / rule-based"}{" "}
+                      : detail.run.engine === "openai"
+                        ? "OpenAI GPT — review candidates; verify evidence before reliance"
+                        : "Deterministic / rule-based"}{" "}
                     · {detail.run.state}
                   </p>
                 </div>
@@ -631,6 +648,13 @@ function Workspace({
                   </button>
                 </div>
               </div>
+              {detail.usage && (
+                <p className="mt-2 text-xs text-slate-500">
+                  {detail.usage.model} · Input {detail.usage.input_tokens ?? "unknown"} / output{" "}
+                  {detail.usage.output_tokens ?? "unknown"} tokens · Estimated USD{" "}
+                  {detail.usage.estimated_cost_usd ?? "unknown"}
+                </p>
+              )}
               {detail.superseded && (
                 <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
                   Historical revision — newer extraction exists. Reviewed values

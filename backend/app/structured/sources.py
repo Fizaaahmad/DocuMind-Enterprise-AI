@@ -10,6 +10,7 @@ from app.models import (
     AnalysisRun,
     Document,
     DocumentSection,
+    ProviderRequest,
     ReviewEvent,
     RevisionSection,
     SourceRevision,
@@ -145,6 +146,17 @@ def live_revisions(db, run, lock=False):
 
 def redact_document(db, document):
     """Preserve IDs/actions/timestamps only; purge source-bearing values and reviewer notes."""
+    requests = db.scalars(
+        select(ProviderRequest)
+        .where(
+            ProviderRequest.organization_id == document.organization_id,
+            ProviderRequest.document_ids.contains([str(document.id)]),
+        )
+        .order_by(ProviderRequest.id)
+        .with_for_update()
+    ).all()
+    for request in requests:
+        request.response, request.state = None, "redacted"
     revision_ids = select(SourceRevision.id).where(SourceRevision.document_id == document.id)
     runs = db.scalars(
         select(AnalysisRun)

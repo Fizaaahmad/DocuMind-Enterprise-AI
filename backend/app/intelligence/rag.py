@@ -1,5 +1,6 @@
 """Grounding contract enforced without provider-specific citation features."""
 
+import re
 import time
 
 from app.intelligence.providers import (
@@ -28,6 +29,8 @@ def answer(provider, settings, question, history, sources):
         )
     except TimeoutError:
         raise ProviderUnavailable("The answer provider timed out; please try again") from None
+    except ProviderUnavailable:
+        raise
     except Exception:
         raise ProviderUnavailable("The answer provider failed; please try again") from None
     if time.monotonic() - started > settings.llm_timeout_seconds:
@@ -50,18 +53,41 @@ def answer(provider, settings, question, history, sources):
             raise ProviderUnavailable(
                 "Provider returned unsupported evidence; no answer was published"
             )
-        # No free-form provider prose is published: exact passages establish support.
-        quote = claim.quote
-        offset = source["start_offset"] + source["text"].index(quote)
-        citations.append(
-            {k: v for k, v in source.items() if k != "text"}
-            | {
-                "quote": quote,
-                "start_offset": offset,
-                "end_offset": offset + len(quote),
-            }
-        )
-        paragraphs.append(f"{quote} [{len(citations)}]")
+        numbers = []
+        quotes = []
+        for source_id, quote in [(claim.source_id, claim.quote), *claim.additional]:
+            source = by_id.get(source_id)
+            if not source or not quote.strip() or quote not in source["text"]:
+                raise ProviderUnavailable("Unsupported answer evidence; no answer published")
+            offset = source["start_offset"] + source["text"].index(quote)
+            citations.append(
+                {k: v for k, v in source.items() if k != "text"}
+                | {
+                    "quote": quote,
+                    "start_offset": offset,
+                    "end_offset": offset + len(quote),
+                }
+            )
+            numbers.append(str(len(citations)))
+            quotes.append(quote)
+        prose = claim.text if claim.text is not None else claim.quote
+        if claim.text is not None:
+            validate_facts(prose, "\n".join(quotes))
+        paragraphs.append(f"{prose} [{', '.join(numbers)}]")
     if sum(map(len, paragraphs)) > settings.llm_max_output_tokens * 8:
         raise ProviderUnavailable("Provider response exceeded the output budget")
     return "\n\n".join(paragraphs) or ABSTENTION, citations
+
+
+def validate_facts(text, quotes):
+    """Conservative consistency safeguard, not a proof of semantic entailment."""
+
+    def amounts(value):
+        return {v.replace(",", "") for v in re.findall(r"(?<!\w)\d+(?:[,.]\d+)*(?:%)?", value)}
+
+    if not amounts(text).issubset(amounts(quotes)):
+        raise ProviderUnavailable(
+            "Generated claim contains unsupported numbers; no result published"
+        )
+    if re.search(r"\[[^\]]*\]|https?://", text):
+        raise ProviderUnavailable("Provider-supplied citations or URLs are not accepted")

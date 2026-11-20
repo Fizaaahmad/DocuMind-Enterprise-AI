@@ -133,9 +133,36 @@ def extract(sections, definition, settings, engine="deterministic"):
                 "ambiguous" if len(unique) > 1 else valid,
             )
         )
+    result.extend(evaluate_rules(sections, definition, result))
+    if definition.get("obligations"):
+        for section, start, text in lines(sections):
+            trigger = re.search(r"\b(shall|must|agrees to|will)\b", text, re.I)
+            if not trigger:
+                continue
+            deadline = re.search(r"\b(?:by|on)\s+(\d{4}-\d{2}-\d{2})\b", text, re.I)
+            when, _ = normalize(deadline[1], "date") if deadline else (None, "not_found")
+            result.append(
+                make(
+                    "obligation",
+                    "Commitment candidate",
+                    {
+                        "commitment": text,
+                        "responsible_party": text[: trigger.start()].strip() or None,
+                        "deadline": when,
+                        "note": "Literal language candidate; confirm party, scope, and deadline",
+                    },
+                    [evidence(section, start, start + len(text))],
+                    "candidate",
+                )
+            )
+    return result
+
+
+def evaluate_rules(sections, definition, fields):
+    findings = []
     for rule in definition.get("rules", []):
         related = next(
-            (r for r in result if r["kind"] == "field" and r["name"] == rule["field"]), None
+            (r for r in fields if r["kind"] == "field" and r["name"] == rule["field"]), None
         )
         refs = []
         hit = False
@@ -163,12 +190,13 @@ def extract(sections, definition, settings, engine="deterministic"):
                 except InvalidOperation:
                     hit = False
         if hit:
-            result.append(
+            findings.append(
                 make(
                     "risk",
                     rule["name"],
                     {
                         "severity": rule["severity"],
+                        "provenance": "configured_rule",
                         "rule": rule,
                         "note": note,
                     },
@@ -176,28 +204,7 @@ def extract(sections, definition, settings, engine="deterministic"):
                     "coverage_only" if rule["type"] == "missing" else "candidate",
                 )
             )
-    if definition.get("obligations"):
-        for section, start, text in lines(sections):
-            trigger = re.search(r"\b(shall|must|agrees to|will)\b", text, re.I)
-            if not trigger:
-                continue
-            deadline = re.search(r"\b(?:by|on)\s+(\d{4}-\d{2}-\d{2})\b", text, re.I)
-            when, _ = normalize(deadline[1], "date") if deadline else (None, "not_found")
-            result.append(
-                make(
-                    "obligation",
-                    "Commitment candidate",
-                    {
-                        "commitment": text,
-                        "responsible_party": text[: trigger.start()].strip() or None,
-                        "deadline": when,
-                        "note": "Literal language candidate; confirm party, scope, and deadline",
-                    },
-                    [evidence(section, start, start + len(text))],
-                    "candidate",
-                )
-            )
-    return result
+    return findings
 
 
 def compare(left, right):
@@ -254,9 +261,16 @@ def analyze(left, right, definition, mode, engine, settings):
         raise ValueError(
             "Analysis exceeds ANALYSIS_MAX_CHARACTERS; no partial analysis was published"
         )
-    result = (
-        compare(left, right) if mode == "compare" else extract(left, definition, settings, engine)
-    )
+    if engine == "openai":
+        from app.structured.ai import analyze_ai
+
+        result = analyze_ai(left, right, definition, mode, settings)
+    else:
+        result = (
+            compare(left, right)
+            if mode == "compare"
+            else extract(left, definition, settings, engine)
+        )
     if len(result) > settings.analysis_max_items:
         raise ValueError(
             "Analysis exceeds ANALYSIS_MAX_ITEMS; narrow the template or split documents"
@@ -269,6 +283,8 @@ def analyze(left, right, definition, mode, engine, settings):
         "complete": True,
         "characters": characters,
         "sections": len(left) + len(right),
-        "engine_version": "deterministic-v1",
-        "normalization": "whitespace alignment only" if mode == "compare" else "literal labels",
+        "engine_version": "openai-v1" if engine == "openai" else "deterministic-v1",
+        "normalization": "backend-validated AI candidates"
+        if engine == "openai"
+        else ("whitespace alignment only" if mode == "compare" else "literal labels"),
     }

@@ -1,5 +1,8 @@
 # Runtime versions verified during Phase 7. Resolve Linux/Python 3.12 compatibility in Docker.
 --extra-index-url https://download.pytorch.org/whl/cpu
+certifi==2026.10.23
+httpcore==1.0.9
+httpx==0.28.1
 alembic==1.20.1
 annotated-doc==0.0.5
 annotated-types==0.8.0

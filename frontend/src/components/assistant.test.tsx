@@ -15,9 +15,11 @@ const source = {
   similarity: 0.9,
 };
 let failure = false;
+let gpt = false;
 
 beforeEach(() => {
   failure = false;
+  gpt = false;
   mockApi.mockReset();
   mockApi.mockImplementation(async (path, options) => {
     if (path === "/organizations")
@@ -25,8 +27,8 @@ beforeEach(() => {
     if (path.endsWith("/status"))
       return {
         embeddings_enabled: true,
-        provider: "mock",
-        is_mock: true,
+        provider: gpt ? "openai" : "mock",
+        is_mock: !gpt,
         documents: [
           {
             id: "doc",
@@ -51,7 +53,9 @@ beforeEach(() => {
               question: "Leave?",
               answer: "Annual leave is twenty days. [1]",
               state: "completed",
-              is_mock: true,
+              is_mock: !gpt,
+              provider: gpt ? "openai" : "mock",
+              usage: gpt ? { model: "offline-model", input_tokens: 100, output_tokens: 20, estimated_cost_usd: "0.001" } : null,
               citations: [{ ...source, quote: source.text }],
             },
           ];
@@ -60,6 +64,17 @@ beforeEach(() => {
 });
 
 describe("Assistant", () => {
+  it("labels genuine-provider answers separately from mock output and shows usage", async () => {
+    gpt = true;
+    render(<Assistant />);
+    await screen.findByRole("button", { name: "Ask assistant" });
+    fireEvent.change(screen.getByLabelText("Ask your documents"), { target: { value: "Leave?" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ask assistant" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
+    expect(await screen.findByText(/OpenAI GPT · verify source evidence/)).toBeInTheDocument();
+    expect(screen.getByText(/offline-model · Input 100 \/ output 20 tokens/)).toBeInTheDocument();
+    expect(screen.queryByText(/Development mock — extractive preview/)).not.toBeInTheDocument();
+  });
   it("labels mock responses and opens exact search passages", async () => {
     render(<Assistant />);
     await screen.findByText(/Development mock — extractive preview/);

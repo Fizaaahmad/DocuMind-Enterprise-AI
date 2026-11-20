@@ -2,7 +2,7 @@
 
 from app.models.documents import Document, DocumentChunk, DocumentJob, DocumentSection
 from app.models.identity import AuthSession, Membership, Organization, RefreshToken, User
-from app.models.intelligence import AIUsage, ChunkEmbedding, Conversation, Message
+from app.models.intelligence import AIUsage, ChunkEmbedding, Conversation, Message, ProviderRequest
 from app.models.structured import (
     AnalysisItem,
     AnalysisRun,
@@ -13,6 +13,7 @@ from app.models.structured import (
 )
 
 __all__ = [
+    "ProviderRequest",
     "AnalysisItem",
     "AnalysisRun",
     "AnalysisTemplate",

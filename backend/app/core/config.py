@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     llm_provider: str = "disabled"
     llm_model: str = "extractive-mock-v1"
     llm_api_key: SecretStr | None = None
+    llm_real_requests_enabled: bool = False
+    llm_max_input_tokens: int = Field(default=32000, ge=1000, le=200000)
+    llm_max_retries: int = Field(default=1, ge=0, le=2)
+    llm_input_usd_per_million: float = Field(default=0, ge=0, allow_inf_nan=False)
+    llm_output_usd_per_million: float = Field(default=0, ge=0, allow_inf_nan=False)
+    llm_daily_cost_usd: float = Field(default=1, gt=0, allow_inf_nan=False)
+    llm_daily_tokens: int = Field(default=100000, ge=1000)
+    llm_send_temperature: bool = False
     llm_timeout_seconds: int = Field(default=30, ge=1, le=90)
     llm_max_output_tokens: int = Field(default=1024, ge=64, le=4096)
     llm_temperature: float = Field(default=0, ge=0, le=2)
@@ -81,6 +89,18 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security(self):
+        if self.llm_real_requests_enabled and self.llm_provider == "openai":
+            if (
+                not self.llm_api_key
+                or not self.llm_api_key.get_secret_value().strip()
+                or self.llm_model == "extractive-mock-v1"
+                or not self.llm_model.strip()
+                or self.llm_input_usd_per_million <= 0
+                or self.llm_output_usd_per_million <= 0
+            ):
+                raise ValueError(
+                    "OpenAI requires a key, explicit model and positive configured pricing"
+                )
         if not self.embedding_cache_path.is_absolute():
             self.embedding_cache_path = (BACKEND_ROOT / self.embedding_cache_path).resolve()
         if self.llm_provider == "mock" and self.environment != "development":

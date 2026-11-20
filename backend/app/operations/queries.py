@@ -21,7 +21,7 @@ from app.models import (
 
 class Filters(BaseModel):
     scope: Literal["current", "superseded", "all"] = "current"
-    engine: Literal["deterministic", "mock", "all"] = "deterministic"
+    engine: Literal["deterministic", "mock", "openai", "all"] = "deterministic"
     kind: Literal["field", "risk", "obligation", "review"] | None = None
     document_id: uuid.UUID | None = None
     review_status: Literal["pending", "corrected", "approved", "rejected"] | None = None

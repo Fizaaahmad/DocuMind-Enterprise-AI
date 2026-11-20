@@ -10,6 +10,8 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.security import now
+from app.intelligence.provider_usage import provider_scope
+from app.intelligence.providers import ProviderUnavailable
 from app.models import AnalysisItem, AnalysisRun, AnalysisTemplate
 from app.structured.engine import analyze
 from app.structured.sources import check_evidence, live_revisions, sections_for
@@ -63,7 +65,15 @@ def run_analysis_once(engine, settings):
             )
             template = db.get(AnalysisTemplate, run.template_id) if run.template_id else None
             definition = template.definition if template else {}
-            results, coverage = analyze(left, right, definition, run.mode, run.engine, settings)
+            documents = [r.document_id for r in live_revisions(db, run)[0]]
+            with provider_scope(
+                engine,
+                run.organization_id,
+                run.creator_id,
+                f"analysis:{run.id}:{run.provider_generation}",
+                documents,
+            ):
+                results, coverage = analyze(left, right, definition, run.mode, run.engine, settings)
         with Session(engine) as db:
             run = db.get(AnalysisRun, run_id)
             # Consistent order with deletion: documents before analysis run.
@@ -85,7 +95,7 @@ def run_analysis_once(engine, settings):
                 return True
             if isinstance(exc, HTTPException) and exc.status_code == 410:
                 run.state, run.error = "unavailable", "Source document unavailable"
-            elif isinstance(exc, ValueError):
+            elif isinstance(exc, (ValueError, ProviderUnavailable)):
                 run.state, run.error = "failed", str(exc)[:500]
             else:
                 run.state = "pending" if run.attempts < settings.worker_max_attempts else "failed"
