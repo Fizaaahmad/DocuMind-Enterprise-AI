@@ -21,7 +21,8 @@ if context.is_offline_mode():
     with context.begin_transaction():
         context.run_migrations()
 else:
-    engine = build_engine(database_url, settings.migration_statement_timeout_ms)
+    engine = build_engine(database_url, settings.migration_statement_timeout_ms,
+                          session_pooler=bool(settings.demo_supabase_project_ref))
     try:
         with engine.connect() as connection:
             if not connection.scalar(text("SELECT pg_try_advisory_lock(17429, 7)")):

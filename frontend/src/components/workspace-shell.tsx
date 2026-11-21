@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { User } from "../lib/types";
 import { Brand, Dialog, Icon, type IconName } from "./ui";
 import { api } from "../lib/api";
+import { DemoNotice } from "./demo-mode";
 
 const navigation: {
   id: IconName;
@@ -130,6 +131,7 @@ export function WorkspaceShell({
         </div>
       </aside>
       <div className="workspace-body">
+        <DemoNotice />
         <header className="app-topbar">
           <div className="flex min-w-0 items-center gap-3">
             <button

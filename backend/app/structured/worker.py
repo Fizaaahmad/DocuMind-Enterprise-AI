@@ -18,6 +18,8 @@ from app.structured.sources import check_evidence, live_revisions, sections_for
 
 
 def run_analysis_once(engine, settings):
+    if settings.demo_mode:
+        raise RuntimeError("Analysis jobs are disabled in public demo mode")
     started = time.monotonic()
     with Session(engine) as db:
         run = db.scalar(

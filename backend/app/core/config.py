@@ -1,4 +1,5 @@
 import os
+import uuid
 from functools import lru_cache
 from pathlib import Path
 
@@ -15,6 +16,14 @@ class Settings(BaseSettings):
 
     app_name: str = "DocuMind API"
     environment: str = "development"
+    demo_mode: bool = False
+    demo_organization_id: uuid.UUID | None = None
+    demo_viewer_id: uuid.UUID | None = None
+    demo_session_minutes: int = Field(default=60, ge=10, le=120)
+    demo_max_sessions: int = Field(default=200, ge=1, le=1000)
+    demo_entry_limit: int = Field(default=12, ge=1, le=60)
+    demo_supabase_project_ref: str | None = None
+    demo_dataset_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     database_url: PostgresDsn
     cors_origins: list[str] = ["http://localhost:3000"]
     auth_secret: SecretStr | None = None
@@ -89,6 +98,24 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security(self):
+        if self.demo_mode:
+            if not self.demo_organization_id or not self.demo_viewer_id:
+                raise ValueError("Demo mode requires explicit organization and viewer IDs")
+            if (self.llm_provider != "disabled" or self.llm_real_requests_enabled
+                    or self.llm_api_key or self.embeddings_enabled or self.ocr_enabled):
+                raise ValueError("Demo mode requires providers, keys, embeddings and OCR disabled")
+            if self.demo_supabase_project_ref:
+                if self.environment != "production" or not self.cookie_secure:
+                    raise ValueError("Managed demo requires production and secure cookies")
+                from app.demo.target import validate_supabase_target
+                validate_supabase_target(self.database_url, self.demo_supabase_project_ref,
+                                         "documind_demo_app")
+                if not self.demo_dataset_sha256:
+                    raise ValueError("Managed demo requires a pinned fictional dataset hash")
+            elif not (self.database_url.path or "").lstrip("/").startswith("documind_demo"):
+                raise ValueError("Demo mode requires an isolated documind_demo database")
+        elif self.demo_supabase_project_ref:
+            raise ValueError("Managed demo project configuration requires DEMO_MODE")
         if self.llm_real_requests_enabled and self.llm_provider == "openai":
             if (
                 not self.llm_api_key
@@ -164,6 +191,16 @@ class MigrationSettings(BaseSettings):
     model_config = Settings.model_config
     database_url: PostgresDsn
     migration_statement_timeout_ms: int = Field(default=120000, ge=1000, le=3600000)
+    demo_supabase_project_ref: str | None = None
+    demo_dataset_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_demo_target(self):
+        if self.demo_supabase_project_ref:
+            from app.demo.target import validate_supabase_target
+            validate_supabase_target(self.database_url, self.demo_supabase_project_ref,
+                                     "documind_demo_migrator")
+        return self
 
 
 @lru_cache

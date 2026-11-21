@@ -76,6 +76,15 @@ def refresh(request: Request, response: Response, db: Session = Depends(get_db))
     settings = request.app.state.settings
     token = request.cookies.get(cookie_name(settings, "refresh"), "")
     try:
+        if settings.demo_mode:
+            from app.core.demo import bound_refresh
+            existing = db.get(AuthSession, session_id(token))
+            if not existing or existing.user_id != settings.demo_viewer_id:
+                raise HTTPException(401, "Invalid demo session")
+            # Use the same lock order as entry/cleanup; rotation takes the row lock.
+            from sqlalchemy import text
+            db.execute(text("SELECT pg_advisory_xact_lock(74021963)"))
+            bound_refresh(db, existing, token)
         session, replacement = auth.rotate(db, token)
     except HTTPException as exc:
         failure = JSONResponse({"detail": exc.detail}, status_code=exc.status_code)

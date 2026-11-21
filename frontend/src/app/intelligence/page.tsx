@@ -10,7 +10,7 @@ export default async function IntelligencePage({
 }: {
   searchParams: Promise<{ organization?: string; run?: string; item?: string }>;
 }) {
-  const user = await requireUser();
+  const user = await requireUser("/intelligence");
   const params = await searchParams;
   return (
     <StructuredWorkspace

@@ -10,7 +10,7 @@ export default async function OperationsPage({
 }: {
   searchParams: Promise<{ view?: string; focus?: string; engine?: string }>;
 }) {
-  const user = await requireUser();
+  const user = await requireUser("/operations");
   const params = await searchParams;
   return (
     <OperationsWorkspace

@@ -1,4 +1,5 @@
 "use client";
+import { useDemo } from "./demo-mode";
 
 import Link from "next/link";
 import { AnswerText, UsageDetails } from "./answer-text";
@@ -109,6 +110,7 @@ export function Assistant({ user }: { user?: User } = {}) {
 }
 
 function Workspace({ organization }: { organization: string }) {
+  const demo = useDemo();
   const base = `/organizations/${organization}/intelligence`;
   const { confirm, confirmation } = useConfirmation();
   const [documentQuery, setDocumentQuery] = useState("");
@@ -138,6 +140,7 @@ function Workspace({ organization }: { organization: string }) {
         if (active) {
           setStatus(next);
           setConversations(history);
+          if (demo) setConversation((current) => current || history[0]?.id || "");
         }
       } catch (e) {
         if (active) setError((e as Error).message);
@@ -146,12 +149,12 @@ function Workspace({ organization }: { organization: string }) {
     void load();
     const timer = setInterval(() => {
       if (!document.hidden) void load();
-    }, 5000);
+    }, demo ? 60000 : 5000);
     return () => {
       active = false;
       clearInterval(timer);
     };
-  }, [base, refresh]);
+  }, [base, refresh, demo]);
   useEffect(() => {
     if (!conversation) return;
     let active = true;
@@ -243,7 +246,7 @@ function Workspace({ organization }: { organization: string }) {
           </div>
           <button
             className="btn-primary w-full"
-            disabled={busy}
+            disabled={demo || busy}
             onClick={() => {
               setConversation("");
               setMessages([]);
@@ -285,7 +288,7 @@ function Workspace({ organization }: { organization: string }) {
           {conversation && (
             <button
               className="conversation-delete"
-              disabled={busy}
+              disabled={demo || busy}
               onClick={async () => {
                 if (
                   !(await confirm(
@@ -320,10 +323,10 @@ function Workspace({ organization }: { organization: string }) {
             <h2>Document scope</h2>
           </div>
           <p className="sidebar-help">
-            {selection.length
+            {demo ? "Prepared sample sources. Open a saved answer to inspect its citations." : <>{selection.length
               ? `${selection.length} selected`
               : "All indexed documents"}
-            . Only your organization’s sources are searched.
+            . Only your organization’s sources are searched.</>}
           </p>
           <label className="document-scope-search">
             <Icon name="search" />
@@ -348,7 +351,7 @@ function Workspace({ organization }: { organization: string }) {
                     <input
                       type="checkbox"
                       checked={selection.includes(d.id)}
-                      disabled={busy}
+                      disabled={demo || busy}
                       onChange={(e) =>
                         setSelection((ids) =>
                           e.target.checked
@@ -360,7 +363,7 @@ function Workspace({ organization }: { organization: string }) {
                     <span>
                       <strong>{d.filename}</strong>
                       <span className="scope-status">
-                        {d.status === "completed"
+                        {demo ? "Prepared source · search disabled" : d.status === "completed"
                           ? d.index_status === "completed"
                             ? "Indexed · ready to search"
                             : d.index_status
@@ -377,7 +380,7 @@ function Workspace({ organization }: { organization: string }) {
                     ["unindexed", "failed"].includes(d.index_status) && (
                       <button
                         className="scope-index"
-                        disabled={busy || !status.embeddings_enabled}
+                        disabled={demo || busy || !status.embeddings_enabled}
                         onClick={() => void index(d.id)}
                       >
                         Index document
@@ -407,7 +410,7 @@ function Workspace({ organization }: { organization: string }) {
           </div>
           <p className="scope-footnote">
             <Icon name="shield" />
-            Indexing requires uploader or Admin permission.
+            {demo ? "Indexing is unavailable in this read-only demo." : "Indexing requires uploader or Admin permission."}
           </p>
         </section>
       </aside>
@@ -436,13 +439,14 @@ function Workspace({ organization }: { organization: string }) {
             passages, not real AI answers.
           </p>
         )}
-        {status && !status.embeddings_enabled && (
+        {!demo && status && !status.embeddings_enabled && (
           <p className="mock-banner">
             Local embeddings are disabled. Configure and prepare the model, then
             index your documents.
           </p>
         )}
-        {status?.provider === "disabled" && (
+        {demo && <p className="mock-banner">Saved extractive mock preview · No live generation or semantic search. Open citations to inspect the original evidence.</p>}
+        {!demo && status?.provider === "disabled" && (
           <p className="mock-banner">
             Answer provider is disabled. Semantic search is available when
             documents are indexed.
@@ -601,12 +605,12 @@ function Workspace({ organization }: { organization: string }) {
           </label>
           <div className="composer-input">
             <textarea
-              id="question"
+              id="question" readOnly={demo}
               maxLength={4000}
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               disabled={busy || historyLoading}
-              placeholder="Ask a question about your documents…"
+              placeholder={demo ? "Read-only demo: open a saved conversation above to explore answers and citations." : "Ask a question about your documents…"}
             />
             <div className="composer-toolbar">
               <span>
@@ -620,7 +624,7 @@ function Workspace({ organization }: { organization: string }) {
                   type="button"
                   className="btn-secondary"
                   disabled={
-                    busy || !question.trim() || !status?.embeddings_enabled
+                    demo || busy || !question.trim() || !status?.embeddings_enabled
                   }
                   onClick={() => void submit("search")}
                 >
@@ -630,7 +634,7 @@ function Workspace({ organization }: { organization: string }) {
                 <button
                   className="btn-primary"
                   disabled={
-                    busy ||
+                    demo || busy ||
                     historyLoading ||
                     !question.trim() ||
                     !status?.embeddings_enabled ||

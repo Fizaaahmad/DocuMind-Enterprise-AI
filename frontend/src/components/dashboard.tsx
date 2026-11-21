@@ -1,4 +1,5 @@
 "use client";
+import { useDemo } from "./demo-mode";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -11,6 +12,7 @@ import { api, ApiError } from "../lib/api";
 import type { Member, Organization, User } from "../lib/types";
 
 export function Dashboard({ user }: { user: User }) {
+  const demo = useDemo();
   const router = useRouter();
   const { confirm, confirmation } = useConfirmation();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -274,6 +276,7 @@ export function Dashboard({ user }: { user: User }) {
           <section className="panel p-5">
             <h2 className="text-sm font-semibold">Create an organization</h2>
             <form onSubmit={createOrganization} className="mt-4 space-y-4">
+              {demo && <p className="text-sm text-slate-500">Organization changes are unavailable in this demo.</p>}
               <label className="field-label">
                 Organization name
                 <input
@@ -282,12 +285,12 @@ export function Dashboard({ user }: { user: User }) {
                   maxLength={100}
                   required
                   disabled={pending}
-                  placeholder="e.g. Acme Research"
+                  placeholder="e.g. Acme Research" readOnly={demo}
                 />
               </label>
               <button
                 className="btn-primary w-full"
-                disabled={pending || loading}
+                disabled={demo || pending || loading}
               >
                 Create organization
               </button>

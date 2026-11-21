@@ -10,8 +10,27 @@ const { jar, redirect } = vi.hoisted(() => ({
 vi.mock("next/headers", () => ({ cookies: async () => jar }));
 vi.mock("next/navigation", () => ({ redirect }));
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+});
+
+it("routes a sleeping demo to bounded wake UI without accepting an unauthenticated user", async () => {
+  vi.stubEnv("DEMO_MODE", "true");
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("unavailable")));
+  await expect(requireUser("/assistant")).rejects.toThrow("redirect:/demo-wake?next=%2Fassistant");
+});
+
+it("keeps login protection on a ready demo returning 401", async () => {
+  vi.stubEnv("DEMO_MODE", "true"); jar.has.mockReturnValue(false);
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+  await expect(requireUser()).rejects.toThrow("redirect:/login");
+});
+
+it("does not permit an external wake redirect target", async () => {
+  vi.stubEnv("DEMO_MODE", "true");
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("unavailable")));
+  await expect(requireUser("https://evil.example")).rejects.toThrow("redirect:/demo-wake?next=%2Fdashboard");
 });
 
 it("validates cookies with FastAPI before rendering user data", async () => {

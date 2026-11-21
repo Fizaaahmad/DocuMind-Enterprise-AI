@@ -59,7 +59,9 @@ def readiness(
     extra = {}
     if request.app.state.settings.environment == "production":
         config = request.app.state.settings
-        storage_ok = config.storage_path.is_dir() and os.access(config.storage_path, os.W_OK)
+        storage_ok = config.storage_path.is_dir() and os.access(
+            config.storage_path, os.R_OK if config.demo_mode else os.W_OK
+        )
         try:
             schema_ok = (
                 db.execute(text("SELECT version_num FROM alembic_version")).scalar()

@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.routes.auth import router as auth_router
+from app.api.routes.demo import router as demo_router
 from app.api.routes.documents import router as documents_router
 from app.api.routes.health import router as health_router
 from app.api.routes.intelligence import router as intelligence_router
@@ -30,15 +31,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        engine = build_engine(str(config.database_url))
+        engine = build_engine(str(config.database_url), demo_pool=config.demo_mode,
+                              session_pooler=bool(config.demo_supabase_project_ref))
         app.state.engine = engine
         try:
+            if config.demo_mode:
+                from sqlalchemy.orm import Session
+
+                from app.core.demo import validate_dataset
+                with Session(engine) as db:
+                    validate_dataset(db, config)
             yield
         finally:
             engine.dispose()
 
     app = FastAPI(title=config.app_name, version="0.1.0", lifespan=lifespan)
     app.state.settings = config
+    from app.core.demo import DemoEntryLimiter
+    app.state.demo_entry_limiter = DemoEntryLimiter(config.demo_entry_limit)
 
     @app.exception_handler(SQLAlchemyError)
     async def database_error(request: Request, exc: SQLAlchemyError):
@@ -47,6 +57,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
+        if config.demo_mode:
+            from app.core.demo import READ_ONLY_MESSAGE, allowed
+            if not allowed(request.method, request.url.path):
+                return JSONResponse({"detail": READ_ONLY_MESSAGE}, status_code=403,
+                                    headers={"Cache-Control": "no-store"})
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             try:
                 verify_csrf(request, config)
@@ -78,6 +93,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.allowed_hosts)
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(demo_router, prefix="/api/v1")
     app.include_router(organizations_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
     app.include_router(intelligence_router, prefix="/api/v1")

@@ -1,4 +1,5 @@
 "use client";
+import { useDemo } from "./demo-mode";
 
 import { TemplateDesigner } from "./template-designer";
 import { UsageDetails } from "./answer-text";
@@ -223,6 +224,7 @@ function Workspace({
   initialRun: string;
   initialItem: string;
 }) {
+  const demo = useDemo();
   const base = `/organizations/${organization}/structured`;
   const [documents, setDocuments] = useState<Document[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -369,6 +371,7 @@ function Workspace({
       <aside className="space-y-5">
         <section className="panel space-y-3 p-5">
           <h2 className="font-semibold">New analysis</h2>
+          {demo ? <p className="text-sm text-slate-500">Browse the saved analyses below. New analysis and changes are disabled in this fictional snapshot.</p> : <>
           <label className="block text-sm">
             Analysis type
             <select
@@ -499,14 +502,15 @@ function Workspace({
             Uploader/Admin permission is required for each source. Analysis
             scans the full revision and does not require embeddings.
           </p>
+          </>}
           <button
             className="btn-primary w-full"
             disabled={
-              busy || !left || (mode === "compare" ? !right : !template)
+              demo || busy || !left || (mode === "compare" ? !right : !template)
             }
             onClick={() => void submit()}
           >
-            Queue analysis
+            {demo ? "Analysis unavailable in demo" : "Queue analysis"}
           </button>
           {admin && (
             <button
@@ -960,13 +964,14 @@ export function ReviewPanel({
   sourceEvidence: Evidence | null;
   onReview: (payload: Record<string, unknown>) => Promise<void>;
 }) {
+  const demo = useDemo();
   const [reason, setReason] = useState("");
   const [value, setValue] = useState("");
   const [action, setAction] = useState("approve");
   const [status, setStatus] = useState("in_progress");
   const [source, setSource] = useState("");
   return (
-    <form
+    <fieldset disabled={demo}><legend className="sr-only">Review actions</legend><form
       className="mt-5 grid gap-3 rounded-lg border border-slate-200 p-4"
       onSubmit={(e) => {
         e.preventDefault();
@@ -1057,11 +1062,11 @@ export function ReviewPanel({
       />
       <button
         className="btn-secondary justify-self-start"
-        disabled={busy || !reason.trim()}
+        disabled={demo || busy || !reason.trim()}
       >
         Save review
       </button>
-    </form>
+    </form>{demo && <p className="mt-2 text-xs text-slate-500">Review decisions are preserved; changes are disabled in this demo.</p>}</fieldset>
   );
 }
 

@@ -5,6 +5,7 @@ export async function proxyRequest(
 ): Promise<Response> {
   const path = segments.join("/");
   const health = /^health(?:\/ready)?$/;
+  const demo = /^demo(?:\/enter)?$/;
   const auth = /^auth\/(csrf|register|login|refresh|logout|me)$/;
   const orgs =
     /^organizations(?:\/[0-9a-f-]{36}(?:\/members(?:\/[0-9a-f-]{36})?)?)?$/i;
@@ -17,7 +18,7 @@ export async function proxyRequest(
   const operations =
     /^organizations\/[0-9a-f-]{36}\/operations\/(?:summary|items|members|activity|export|diagnostics|items\/[0-9a-f-]{36}\/assignment)$/i;
   if (
-    !auth.test(path) &&
+    !demo.test(path) && !auth.test(path) &&
     !orgs.test(path) &&
     !documents.test(path) &&
     !intelligence.test(path) &&
@@ -46,6 +47,7 @@ export async function proxyRequest(
       "content-disposition",
       "content-length",
       "x-request-id",
+      "retry-after",
     ]) {
       const value = response.headers.get(key);
       if (value) outgoing.set(key, value);
@@ -107,6 +109,7 @@ export async function proxyRequest(
         cache: "no-store",
         redirect: "manual",
         signal: AbortSignal.timeout(
+          health.test(path) && process.env.DEMO_MODE === "true" ? 4000 :
           upload || intelligence.test(path) ? 120000 : 15000,
         ),
         ...(body ? { duplex: "half" } : {}),

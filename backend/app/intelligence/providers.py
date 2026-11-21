@@ -125,6 +125,8 @@ PROVIDERS: dict[str, type[LLMProvider]] = {"mock": MockProvider}
 
 
 def get_provider(settings: Settings) -> LLMProvider:
+    if settings.demo_mode:
+        raise ProviderUnavailable("Generation is disabled in public demo mode")
     if settings.llm_provider == "openai":
         from app.intelligence.openai_provider import OpenAIProvider
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatBytes, uploadDocument } from "../../lib/documents";
+import { useDemo } from "../demo-mode";
 
 type Transfer = {
   name: string;
@@ -19,6 +20,7 @@ export function UploadZone({
   limit: number | null;
   onUploaded: () => void;
 }) {
+  const demo = useDemo();
   const input = useRef<HTMLInputElement>(null);
   const controller = useRef<AbortController | null>(null);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
@@ -28,6 +30,7 @@ export function UploadZone({
   useEffect(() => () => controller.current?.abort(), []);
 
   async function accept(files: File[]) {
+    if (demo) return;
     if (busy || !limit) return;
     if (files.length > 10) {
       setError("Choose up to 10 files at a time.");
@@ -90,6 +93,9 @@ export function UploadZone({
     if (input.current) input.current.value = "";
   }
 
+  if (demo) return <section className="panel mb-5 p-5 text-sm text-slate-500" role="note">
+    <strong>Sample document library</strong> · Uploads are disabled in this read-only demo. Open a sample to explore its sources and saved analysis.
+  </section>;
   return (
     <section aria-label="Upload documents" className="panel overflow-hidden">
       <div

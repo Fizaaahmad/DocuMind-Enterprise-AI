@@ -310,6 +310,8 @@ def fail(engine: Engine, claim: Claim, settings: Settings, message: str, transie
 
 
 def run_once(engine: Engine, settings: Settings, extractor=extract_in_process) -> bool:
+    if settings.demo_mode:
+        raise RuntimeError("Document jobs are disabled in public demo mode")
     claim = claim_job(engine, settings)
     if not claim:
         return False
@@ -365,6 +367,8 @@ def main():
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     settings = get_settings()
+    if settings.demo_mode:
+        raise SystemExit("The document worker is disabled in public demo mode")
     configure_logs()
     engine = build_engine(str(settings.database_url))
     logger.info("worker_started")

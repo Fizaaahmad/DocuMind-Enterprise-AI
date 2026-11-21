@@ -28,4 +28,9 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.get(User, session.user_id)
     if not user:
         raise HTTPException(401, "User not found")
+    if settings.demo_mode:
+        from app.core.demo import viewer
+        if user.id != settings.demo_viewer_id:
+            raise HTTPException(403, "Demo access is restricted to the demo viewer")
+        viewer(db, settings)
     return user

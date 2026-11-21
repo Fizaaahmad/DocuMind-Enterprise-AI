@@ -144,6 +144,9 @@ OCR is disabled until Tesseract is installed: [OCR setup](docs/setup.md#optional
 | [Hybrid architecture](portfolio/content/architecture-guide.md) | Retrieval, GPT generation, deterministic processing and evidence |
 | [OpenAI integration](docs/PHASE8.md) | Provider configuration, budgets, safeguards and controlled paid testing |
 | [Deployment and recovery](deploy/README.md) | Production Compose, TLS, migrations, backups and restore |
+| [Read-only portfolio demo](docs/demo-local.md) | Isolated fictional dataset, secure visitor sessions and local Docker verification; no live AI calls |
+| [Free hosting review](docs/render-free-demo.md) | Vercel, Render and Supabase feasibility, configuration drafts and pre-deployment blockers |
+| [Prepared free demo deployment](docs/render-deployment.md) | Project-pinned isolation, immutable fictional fixtures, local checks and approval-gated cloud steps |
 | [UI verification](docs/PHASE9.md) | Themes, responsive layouts and isolated browser checks |
 | [Detailed feature reference](docs/development-history.md) | Preserved workflows, APIs, tests and engineering decisions |
 | [Technical case study](portfolio/case-study/DocuMind-Engineering-Case-Study.pdf) | Eight-page project case study and evidence |

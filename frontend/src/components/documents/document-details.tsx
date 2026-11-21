@@ -1,4 +1,5 @@
 "use client";
+import { useDemo } from "../demo-mode";
 
 import { useEffect, useState } from "react";
 import { useConfirmation } from "../ui";
@@ -23,6 +24,7 @@ export function DocumentDetails({
   onClose: () => void;
   onChange: () => void;
 }) {
+  const demo = useDemo();
   const { confirm, confirmation } = useConfirmation();
   const [record, setRecord] = useState(initial);
   const [content, setContent] = useState<DocumentContent | null>(null);
@@ -164,7 +166,7 @@ export function DocumentDetails({
           {canManage && record.status === "failed" && record.storage_ready && (
             <button
               className="btn-primary"
-              disabled={busy}
+              disabled={demo || busy}
               onClick={() =>
                 void action(async () => {
                   setRecord(
@@ -183,7 +185,7 @@ export function DocumentDetails({
           {canManage && (
             <button
               className="rounded-lg border border-rose-200 px-4 py-2.5 text-sm font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-              disabled={busy}
+              disabled={demo || busy}
               onClick={async () => {
                 if (
                   await confirm(

@@ -28,6 +28,13 @@ backups/
 /portfolio/verification/*.png
 
 # Reproducible portfolio intermediates and unselected capture variants.
+/deploy/demo/secrets/
+/deploy/demo/certs/
+/deploy/demo/.env.local
+/deploy/demo/verification/
+/deploy/render/*.env
+/deploy/render/secrets/
+/deploy/render/verification/
 /portfolio/source/*.html
 /portfolio/source/demo-documents/
 /portfolio/verification/layout-checks.json

@@ -2,7 +2,11 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { User } from "./types";
 
-export async function requireUser(): Promise<User> {
+export async function requireUser(next = "/dashboard"): Promise<User> {
+  const wake = () => {
+    const allowed = ["/dashboard", "/documents", "/assistant", "/intelligence", "/operations"];
+    redirect(`/demo-wake?next=${encodeURIComponent(allowed.includes(next) ? next : "/dashboard")}`);
+  };
   const jar = await cookies();
   const cookie = jar.toString();
   let response: Response;
@@ -16,6 +20,7 @@ export async function requireUser(): Promise<User> {
       },
     );
   } catch {
+    if (process.env.DEMO_MODE === "true") wake();
     throw new Error(
       "DocuMind backend is unavailable. Please try again shortly.",
     );
@@ -26,6 +31,10 @@ export async function requireUser(): Promise<User> {
     const hasRefresh = jar.has("dm_refresh") || jar.has("__Host-dm_refresh");
     redirect(hasRefresh ? "/session" : "/login");
   }
+  if (process.env.DEMO_MODE === "true" && (
+    [502, 503, 504].includes(response.status) ||
+    (response.ok && !response.headers.get("content-type")?.includes("application/json"))
+  )) wake();
   if (!response.ok) throw new Error("Unable to verify your DocuMind session.");
   return response.json();
 }

@@ -1,0 +1,58 @@
+# Operator configuration. Do not deploy before explicit approval and launch gates.
+# Root Blueprint: review and create manually; automatic deploys remain disabled.
+services:
+  - type: web
+    name: documind-readonly-demo
+    runtime: docker
+    plan: free
+    numInstances: 1
+    autoDeployTrigger: "off"
+    dockerfilePath: ./backend/Dockerfile.render-demo.example
+    dockerContext: ./backend
+    healthCheckPath: /api/v1/health/ready
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEMO_MODE
+        value: "true"
+      - key: DEMO_ORGANIZATION_ID
+        value: d09a0000-0000-4000-8000-000000000001
+      - key: DEMO_VIEWER_ID
+        value: d09a0000-0000-4000-8000-000000000002
+      - key: DEMO_SUPABASE_PROJECT_REF
+        sync: false
+      - key: DEMO_DATASET_SHA256
+        value: 3606715a11369a933e786bd2a07f13e0d2dabab59916fc9afbd14fc2063b1462
+      - key: DEMO_ENTRY_LIMIT
+        value: "12"
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: STORAGE_PATH
+        value: /data/documents
+      - key: LLM_PROVIDER
+        value: disabled
+      - key: LLM_REAL_REQUESTS_ENABLED
+        value: "false"
+      - key: EMBEDDINGS_ENABLED
+        value: "false"
+      - key: OCR_ENABLED
+        value: "false"
+      - key: DEMO_MAX_SESSIONS
+        value: "100"
+      - key: DEMO_SESSION_MINUTES
+        value: "60"
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: OPENBLAS_NUM_THREADS
+        value: "1"
+# Deliberately no database, worker, disk, cron, preDeployCommand, API key or model preparation.
+# Free services do not provide pre-deploy jobs or operator shell access.
+# DATABASE_URL must be the restricted runtime role, NEVER the migration/admin role.

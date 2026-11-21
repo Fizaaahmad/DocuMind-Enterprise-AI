@@ -1,4 +1,5 @@
 "use client";
+import { useDemo } from "./demo-mode";
 
 import Link from "next/link";
 import { BusinessValues, Dialog } from "./ui";
@@ -980,10 +981,11 @@ function AssignmentForm({
   busy: boolean;
   onSave: (payload: Record<string, unknown>) => Promise<void>;
 }) {
+  const demo = useDemo();
   const [assignee, setAssignee] = useState(item.assignee_id ?? "");
   const [due, setDue] = useState(item.assignment_due_date ?? "");
   return (
-    <form
+    <fieldset disabled={demo}><legend className="sr-only">Assignment controls</legend><form
       className="mt-5 grid gap-3 rounded-xl border border-slate-200 p-4 sm:grid-cols-3"
       onSubmit={(e) => {
         e.preventDefault();
@@ -1008,9 +1010,9 @@ function AssignmentForm({
           onChange={(e) => setDue(e.target.value)}
         />
       </label>
-      <button className="btn-primary self-end" disabled={busy}>
+      <button className="btn-primary self-end" disabled={demo || busy}>
         Save assignment
       </button>
-    </form>
+    </form>{demo && <p className="mt-2 text-xs text-slate-500">Assignments are read-only in this demo.</p>}</fieldset>
   );
 }

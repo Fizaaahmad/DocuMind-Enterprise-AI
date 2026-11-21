@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "../lib/api";
 import { Brand, Icon } from "./ui";
+import { DemoEntry, useDemo } from "./demo-mode";
 
 export function AuthForm({ signup = false }: { signup?: boolean }) {
+  const demo = useDemo();
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -85,14 +87,14 @@ export function AuthForm({ signup = false }: { signup?: boolean }) {
           </Link>
           <p className="eyebrow">Your secure workspace</p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight">
-            {signup ? "Create your account" : "Welcome back"}
+            {demo ? "Explore DocuMind" : signup ? "Create your account" : "Welcome back"}
           </h1>
           <p className="mb-8 mt-3 text-sm leading-6 text-slate-500">
             {signup
               ? "Start with your account. Create or join an organization next."
               : "Your documents, insights and team. All in one workspace."}
           </p>
-          <form onSubmit={submit} className="space-y-5">
+          {demo ? <DemoEntry /> : <form onSubmit={submit} className="space-y-5">
             {signup && (
               <label className="field-label">
                 Full name
@@ -156,8 +158,8 @@ export function AuthForm({ signup = false }: { signup?: boolean }) {
               {pending ? "Please wait…" : signup ? "Create account" : "Sign in"}
               {!pending && <Icon name="arrow" />}
             </button>
-          </form>
-          <p className="mt-7 text-center text-sm text-slate-500">
+          </form>}
+          {!demo && <p className="mt-7 text-center text-sm text-slate-500">
             {signup ? "Already have an account? " : "New to DocuMind? "}
             <Link
               className="font-medium text-indigo-600 hover:underline"
@@ -165,7 +167,7 @@ export function AuthForm({ signup = false }: { signup?: boolean }) {
             >
               {signup ? "Sign in" : "Create an account"}
             </Link>
-          </p>
+          </p>}
           <Link
             href="/"
             className="mt-10 block text-center text-xs text-slate-400 hover:text-slate-600"

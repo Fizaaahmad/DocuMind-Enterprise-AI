@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./theme.css";
 import { ThemeSelector } from "../components/theme-selector";
+import { DemoProvider } from "../components/demo-mode";
 
 // Resolve appearance before paint, without accessing authentication or user data.
 const themeScript = `(()=>{let t='system';try{t=localStorage.getItem('documind.theme')||t}catch{}document.documentElement.dataset.theme=t==='dark'||t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'})()`;
@@ -24,8 +25,10 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
+        <DemoProvider enabled={process.env.DEMO_MODE === "true"}>
         {children}
         <ThemeSelector />
+        </DemoProvider>
       </body>
     </html>
   );

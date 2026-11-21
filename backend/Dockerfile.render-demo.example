@@ -1,0 +1,25 @@
+# Operator deployment template. Cloud deployment still requires explicit approval.
+# Build context: backend/ (uses existing .dockerignore, excludes .env and var).
+# Preserve every existing dependency pin; no new resolution or slim lock here.
+FROM python:3.12-slim-bookworm
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements.lock /app/requirements.lock
+RUN pip install -r requirements.lock
+COPY pyproject.toml /app/
+COPY app /app/app
+COPY alembic /app/alembic
+COPY alembic.ini /app/
+# Public provider CA only; credentials are supplied separately at runtime.
+COPY render-demo-ca.crt /app/render-demo-ca.crt
+RUN pip install --no-deps . && useradd --uid 10001 --create-home documind
+# Generated ONLY from a new isolated fictional dataset. Must retain
+# organization/document UUID directories, original bytes, and checksum manifest.
+COPY render-demo-assets/ /data/documents/
+RUN test -f /data/documents/demo-manifest.json && test -f /data/documents/records.json && chmod -R a-w /data/documents
+USER 10001:10001
+ENV STORAGE_PATH=/data/documents
+# Never start the full writable application accidentally on the public service.
+# PORT is supplied by Render. No worker or migration process starts here.
+CMD ["sh", "-c", "test \"$DEMO_MODE\" = true || { echo 'Read-only demo mode is required'; exit 1; }; exec python -m uvicorn app.main:create_app --factory --host 0.0.0.0 --port \"${PORT:-10000}\" --workers 1 --limit-concurrency 8 --no-access-log --no-proxy-headers"]

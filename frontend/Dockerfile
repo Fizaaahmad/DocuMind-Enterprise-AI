@@ -3,6 +3,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
+ARG DEMO_MODE=false
+ENV DEMO_MODE=$DEMO_MODE
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 

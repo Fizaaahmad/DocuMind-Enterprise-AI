@@ -10,7 +10,7 @@ export default async function DocumentsPage({
 }: {
   searchParams: Promise<{ organization?: string; document?: string }>;
 }) {
-  const user = await requireUser();
+  const user = await requireUser("/documents");
   const params = await searchParams;
   return (
     <DocumentLibrary

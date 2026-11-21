@@ -1,2 +1,4 @@
 # Preserve portfolio PDF bytes across Windows and Unix checkouts.
 portfolio/**/*.pdf binary
+# Immutable demo checksums must survive Windows/Unix checkouts unchanged.
+backend/render-demo-assets/** -text
